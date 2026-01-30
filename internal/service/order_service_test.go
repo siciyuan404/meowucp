@@ -95,6 +95,7 @@ type fakeProductRepo struct {
 	products       map[int64]*domain.Product
 	updateStockErr error
 	updatedStock   map[int64]int
+	sales          map[int64]int
 }
 
 func (f *fakeProductRepo) Create(product *domain.Product) error { return nil }
@@ -152,8 +153,14 @@ func (f *fakeProductRepo) UpdateStockWithDelta(id int64, delta int) error {
 	product.StockQuantity = newStock
 	return f.UpdateStock(id, newStock)
 }
-func (f *fakeProductRepo) IncrementViews(id int64) error               { return nil }
-func (f *fakeProductRepo) IncrementSales(id int64, quantity int) error { return nil }
+func (f *fakeProductRepo) IncrementViews(id int64) error { return nil }
+func (f *fakeProductRepo) IncrementSales(id int64, quantity int) error {
+	if f.sales == nil {
+		f.sales = map[int64]int{}
+	}
+	f.sales[id] += quantity
+	return nil
+}
 
 type fakeInventoryRepo struct {
 	logs      []*domain.InventoryLog
@@ -443,6 +450,7 @@ type orderTestStore struct {
 	updatedStock   map[int64]int
 	updateStockErr error
 	cartClearErr   error
+	sales          map[int64]int
 }
 
 func (s *orderTestStore) clone() *orderTestStore {
@@ -455,6 +463,7 @@ func (s *orderTestStore) clone() *orderTestStore {
 		cartClearErr:   s.cartClearErr,
 		updatedStock:   map[int64]int{},
 		products:       map[int64]*domain.Product{},
+		sales:          map[int64]int{},
 	}
 	for id, product := range s.products {
 		copyProduct := *product
@@ -462,6 +471,9 @@ func (s *orderTestStore) clone() *orderTestStore {
 	}
 	for id, qty := range s.updatedStock {
 		clone.updatedStock[id] = qty
+	}
+	for id, qty := range s.sales {
+		clone.sales[id] = qty
 	}
 	if s.cart != nil {
 		cartCopy := *s.cart
@@ -588,8 +600,14 @@ func (r *txProductRepo) UpdateStockWithDelta(id int64, delta int) error {
 	product.StockQuantity = newStock
 	return r.UpdateStock(id, newStock)
 }
-func (r *txProductRepo) IncrementViews(id int64) error               { return nil }
-func (r *txProductRepo) IncrementSales(id int64, quantity int) error { return nil }
+func (r *txProductRepo) IncrementViews(id int64) error { return nil }
+func (r *txProductRepo) IncrementSales(id int64, quantity int) error {
+	if r.store.sales == nil {
+		r.store.sales = map[int64]int{}
+	}
+	r.store.sales[id] += quantity
+	return nil
+}
 
 type txInventoryRepo struct {
 	store *orderTestStore
@@ -688,5 +706,53 @@ func TestOrderServiceCreateOrderRollsBackOnCartClearFailure(t *testing.T) {
 	}
 	if store.cartCleared {
 		t.Fatalf("expected cart not cleared after rollback")
+	}
+}
+
+func TestOrderServiceCreateOrderIncrementsProductSales(t *testing.T) {
+	store := &orderTestStore{
+		products: map[int64]*domain.Product{
+			60: {
+				ID:            60,
+				Name:          "Cat Harness",
+				SKU:           "HARNESS-001",
+				StockQuantity: 10,
+			},
+			61: {
+				ID:            61,
+				Name:          "Cat Leash",
+				SKU:           "LEASH-001",
+				StockQuantity: 8,
+			},
+		},
+		cart: &domain.Cart{
+			ID:     600,
+			UserID: 6,
+			Items: []domain.CartItem{{
+				ProductID: 60,
+				Quantity:  2,
+				Price:     20,
+			}, {
+				ProductID: 61,
+				Quantity:  1,
+				Price:     15,
+			}},
+		},
+	}
+	orderRepo := &txOrderRepo{store: store}
+	productRepo := &txProductRepo{store: store}
+	inventoryRepo := &txInventoryRepo{store: store}
+	cartRepo := &txCartRepo{store: store}
+
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
+	_, err := svc.CreateOrder(6, "ship", "bill", "", "card")
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	if store.sales[60] != 2 {
+		t.Fatalf("expected product 60 sales to be incremented")
+	}
+	if store.sales[61] != 1 {
+		t.Fatalf("expected product 61 sales to be incremented")
 	}
 }
