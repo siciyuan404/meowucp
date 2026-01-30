@@ -1,0 +1,58 @@
+server:
+  port: 8080
+  mode: debug
+
+database:
+  host: localhost
+  port: 5432
+  user: meowucp
+  password: meowucp123
+  dbname: meowucp
+  sslmode: disable
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: 300
+
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+
+jwt:
+  secret: your-secret-key-change-in-production
+  expire_hours: 24
+
+log:
+  level: info
+  format: json
+  output: stdout
+
+cache:
+  expire_seconds: 3600
+
+queue:
+  stream_key: meowucp:queue
+  consumer_group: meowucp:consumers
+
+ucp:
+  continue_url_base: https://merchant.example.com/checkout-sessions
+  links:
+    - type: privacy_policy
+      url: https://merchant.example.com/privacy
+      title: Privacy Policy
+    - type: terms_of_service
+      url: https://merchant.example.com/terms
+      title: Terms of Service
+    - type: refund_policy
+      url: https://merchant.example.com/refund
+      title: Refund Policy
+  webhook:
+    jwk_set_url: https://merchant.example.com/.well-known/jwks.json
+    clock_skew_seconds: 300
+    delivery_url: https://platform.example.com/ucp/v1/order-webhooks
+    delivery_timeout_sec: 5
+    skip_signature_verify: false
+    alert_min_attempts: 2
+    alert_dedupe_seconds: 600

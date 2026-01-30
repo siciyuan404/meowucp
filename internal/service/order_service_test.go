@@ -1,0 +1,692 @@
+package service
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/meowucp/internal/domain"
+	"github.com/meowucp/internal/repository"
+)
+
+type fakeOrderRepo struct {
+	items []*domain.Order
+}
+
+func (f *fakeOrderRepo) Create(order *domain.Order) error                    { return nil }
+func (f *fakeOrderRepo) Update(order *domain.Order) error                    { return nil }
+func (f *fakeOrderRepo) FindByID(id int64) (*domain.Order, error)            { return nil, nil }
+func (f *fakeOrderRepo) FindByOrderNo(orderNo string) (*domain.Order, error) { return nil, nil }
+func (f *fakeOrderRepo) FindByUserID(userID int64, offset, limit int) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (f *fakeOrderRepo) CountByUserID(userID int64) (int64, error) { return 0, nil }
+func (f *fakeOrderRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Order, error) {
+	if offset >= len(f.items) {
+		return []*domain.Order{}, nil
+	}
+	end := offset + limit
+	if end > len(f.items) {
+		end = len(f.items)
+	}
+	return f.items[offset:end], nil
+}
+func (f *fakeOrderRepo) Count(filters map[string]interface{}) (int64, error) {
+	return int64(len(f.items)), nil
+}
+func (f *fakeOrderRepo) UpdateStatus(id int64, status string) error   { return nil }
+func (f *fakeOrderRepo) CreateOrderItem(item *domain.OrderItem) error { return nil }
+
+type fakeOrderCreateRepo struct {
+	createdOrder *domain.Order
+	createdItems []*domain.OrderItem
+	createErr    error
+	itemErr      error
+}
+
+func (f *fakeOrderCreateRepo) Create(order *domain.Order) error {
+	if f.createErr != nil {
+		return f.createErr
+	}
+	f.createdOrder = order
+	return nil
+}
+func (f *fakeOrderCreateRepo) Update(order *domain.Order) error                    { return nil }
+func (f *fakeOrderCreateRepo) FindByID(id int64) (*domain.Order, error)            { return nil, nil }
+func (f *fakeOrderCreateRepo) FindByOrderNo(orderNo string) (*domain.Order, error) { return nil, nil }
+func (f *fakeOrderCreateRepo) FindByUserID(userID int64, offset, limit int) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (f *fakeOrderCreateRepo) CountByUserID(userID int64) (int64, error) { return 0, nil }
+func (f *fakeOrderCreateRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (f *fakeOrderCreateRepo) Count(filters map[string]interface{}) (int64, error) { return 0, nil }
+func (f *fakeOrderCreateRepo) UpdateStatus(id int64, status string) error          { return nil }
+func (f *fakeOrderCreateRepo) CreateOrderItem(item *domain.OrderItem) error {
+	if f.itemErr != nil {
+		return f.itemErr
+	}
+	f.createdItems = append(f.createdItems, item)
+	return nil
+}
+
+type fakeCartRepo struct {
+	cart        *domain.Cart
+	clearedCart int64
+	clearErr    error
+}
+
+func (f *fakeCartRepo) FindByUserID(userID int64) (*domain.Cart, error) { return f.cart, nil }
+func (f *fakeCartRepo) Create(cart *domain.Cart) error                  { return nil }
+func (f *fakeCartRepo) Update(cart *domain.Cart) error                  { return nil }
+func (f *fakeCartRepo) Delete(id int64) error                           { return nil }
+func (f *fakeCartRepo) AddItem(item *domain.CartItem) error             { return nil }
+func (f *fakeCartRepo) UpdateItem(item *domain.CartItem) error          { return nil }
+func (f *fakeCartRepo) RemoveItem(cartID, productID int64) error        { return nil }
+func (f *fakeCartRepo) ClearCart(cartID int64) error {
+	if f.clearErr != nil {
+		return f.clearErr
+	}
+	f.clearedCart = cartID
+	return nil
+}
+
+type fakeProductRepo struct {
+	products       map[int64]*domain.Product
+	updateStockErr error
+	updatedStock   map[int64]int
+}
+
+func (f *fakeProductRepo) Create(product *domain.Product) error { return nil }
+func (f *fakeProductRepo) Update(product *domain.Product) error { return nil }
+func (f *fakeProductRepo) Delete(id int64) error                { return nil }
+func (f *fakeProductRepo) FindByID(id int64) (*domain.Product, error) {
+	product, ok := f.products[id]
+	if !ok {
+		return nil, errors.New("product not found")
+	}
+	return product, nil
+}
+func (f *fakeProductRepo) FindBySKU(sku string) (*domain.Product, error) { return nil, nil }
+func (f *fakeProductRepo) FindBySlug(slug string) (*domain.Product, error) {
+	return nil, nil
+}
+func (f *fakeProductRepo) GetByIDs(ids []int64) ([]*domain.Product, error) {
+	products := make([]*domain.Product, 0, len(ids))
+	for _, id := range ids {
+		product, ok := f.products[id]
+		if !ok {
+			return nil, errors.New("product not found")
+		}
+		products = append(products, product)
+	}
+	return products, nil
+}
+func (f *fakeProductRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Product, error) {
+	return nil, nil
+}
+func (f *fakeProductRepo) Count(filters map[string]interface{}) (int64, error) { return 0, nil }
+func (f *fakeProductRepo) Search(query string, offset, limit int) ([]*domain.Product, error) {
+	return nil, nil
+}
+func (f *fakeProductRepo) SearchCount(query string) (int64, error) { return 0, nil }
+func (f *fakeProductRepo) UpdateStock(id int64, quantity int) error {
+	if f.updateStockErr != nil {
+		return f.updateStockErr
+	}
+	if f.updatedStock == nil {
+		f.updatedStock = map[int64]int{}
+	}
+	f.updatedStock[id] = quantity
+	return nil
+}
+func (f *fakeProductRepo) UpdateStockWithDelta(id int64, delta int) error {
+	product, ok := f.products[id]
+	if !ok {
+		return errors.New("product not found")
+	}
+	newStock := product.StockQuantity + delta
+	if newStock < 0 {
+		return errors.New("insufficient stock")
+	}
+	product.StockQuantity = newStock
+	return f.UpdateStock(id, newStock)
+}
+func (f *fakeProductRepo) IncrementViews(id int64) error               { return nil }
+func (f *fakeProductRepo) IncrementSales(id int64, quantity int) error { return nil }
+
+type fakeInventoryRepo struct {
+	logs      []*domain.InventoryLog
+	createErr error
+}
+
+func (f *fakeInventoryRepo) Create(log *domain.InventoryLog) error {
+	if f.createErr != nil {
+		return f.createErr
+	}
+	f.logs = append(f.logs, log)
+	return nil
+}
+func (f *fakeInventoryRepo) FindByProductID(productID int64, offset, limit int) ([]*domain.InventoryLog, error) {
+	return nil, nil
+}
+func (f *fakeInventoryRepo) CountByProductID(productID int64) (int64, error) { return 0, nil }
+
+type batchOnlyProductRepo struct {
+	products map[int64]*domain.Product
+}
+
+func (r *batchOnlyProductRepo) Create(product *domain.Product) error { return nil }
+func (r *batchOnlyProductRepo) Update(product *domain.Product) error { return nil }
+func (r *batchOnlyProductRepo) Delete(id int64) error                { return nil }
+func (r *batchOnlyProductRepo) FindByID(id int64) (*domain.Product, error) {
+	return nil, errors.New("batch lookup required")
+}
+func (r *batchOnlyProductRepo) FindBySKU(sku string) (*domain.Product, error) { return nil, nil }
+func (r *batchOnlyProductRepo) FindBySlug(slug string) (*domain.Product, error) {
+	return nil, nil
+}
+func (r *batchOnlyProductRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Product, error) {
+	return nil, nil
+}
+func (r *batchOnlyProductRepo) Count(filters map[string]interface{}) (int64, error) { return 0, nil }
+func (r *batchOnlyProductRepo) Search(query string, offset, limit int) ([]*domain.Product, error) {
+	return nil, nil
+}
+func (r *batchOnlyProductRepo) SearchCount(query string) (int64, error)  { return 0, nil }
+func (r *batchOnlyProductRepo) UpdateStock(id int64, quantity int) error { return nil }
+func (r *batchOnlyProductRepo) UpdateStockWithDelta(id int64, delta int) error {
+	return nil
+}
+func (r *batchOnlyProductRepo) IncrementViews(id int64) error               { return nil }
+func (r *batchOnlyProductRepo) IncrementSales(id int64, quantity int) error { return nil }
+func (r *batchOnlyProductRepo) GetByIDs(ids []int64) ([]*domain.Product, error) {
+	products := make([]*domain.Product, 0, len(ids))
+	for _, id := range ids {
+		product, ok := r.products[id]
+		if !ok {
+			return nil, errors.New("product not found")
+		}
+		products = append(products, product)
+	}
+	return products, nil
+}
+
+func TestOrderServiceListOrders(t *testing.T) {
+	repo := &fakeOrderRepo{items: []*domain.Order{{ID: 1}, {ID: 2}, {ID: 3}}}
+	svc := NewOrderService(repo, nil, nil, nil)
+
+	items, total, err := svc.ListOrders(1, 1, map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("list orders: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("expected total 3")
+	}
+	if len(items) != 1 || items[0].ID != 2 {
+		t.Fatalf("expected item id 2")
+	}
+}
+
+func TestOrderServiceCreateOrderFillsProductInfoAndAdjustsStock(t *testing.T) {
+	orderRepo := &fakeOrderCreateRepo{}
+	productRepo := &fakeProductRepo{products: map[int64]*domain.Product{
+		10: {
+			ID:            10,
+			Name:          "Cat Toy",
+			SKU:           "CAT-TOY-001",
+			StockQuantity: 5,
+		},
+	}}
+	inventoryRepo := &fakeInventoryRepo{}
+	cartRepo := &fakeCartRepo{cart: &domain.Cart{
+		ID:     100,
+		UserID: 1,
+		Items: []domain.CartItem{{
+			ProductID: 10,
+			Quantity:  2,
+			Price:     12.5,
+		}},
+	}}
+
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
+	order, err := svc.CreateOrder(1, "ship", "bill", "", "card")
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	if order == nil || orderRepo.createdOrder == nil {
+		t.Fatalf("expected order created")
+	}
+	if len(orderRepo.createdItems) != 1 {
+		t.Fatalf("expected 1 order item")
+	}
+	item := orderRepo.createdItems[0]
+	if item.ProductName != "Cat Toy" {
+		t.Fatalf("expected product name from product repo")
+	}
+	if item.SKU != "CAT-TOY-001" {
+		t.Fatalf("expected sku from product repo")
+	}
+	if productRepo.updatedStock[10] != 3 {
+		t.Fatalf("expected stock to be updated to 3")
+	}
+	if len(inventoryRepo.logs) != 1 {
+		t.Fatalf("expected inventory log to be created")
+	}
+	log := inventoryRepo.logs[0]
+	if log.QuantityChange != -2 || log.Type != "out" {
+		t.Fatalf("expected inventory log to record stock out")
+	}
+	if log.ReferenceID != order.OrderNo || log.ReferenceType != "order" {
+		t.Fatalf("expected inventory log to reference order")
+	}
+	if cartRepo.clearedCart != 100 {
+		t.Fatalf("expected cart to be cleared")
+	}
+}
+
+func TestOrderServiceCreateOrderUsesBatchProductLookup(t *testing.T) {
+	orderRepo := &fakeOrderCreateRepo{}
+	productRepo := &batchOnlyProductRepo{products: map[int64]*domain.Product{
+		99: {
+			ID:            99,
+			Name:          "Cat Tree",
+			SKU:           "TREE-001",
+			StockQuantity: 6,
+		},
+	}}
+	inventoryRepo := &fakeInventoryRepo{}
+	cartRepo := &fakeCartRepo{cart: &domain.Cart{
+		ID:     900,
+		UserID: 9,
+		Items: []domain.CartItem{{
+			ProductID: 99,
+			Quantity:  1,
+			Price:     88,
+		}},
+	}}
+
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
+	_, err := svc.CreateOrder(9, "ship", "bill", "", "card")
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+}
+
+func TestOrderServiceCreateOrderRejectsInsufficientStock(t *testing.T) {
+	store := &orderTestStore{
+		products: map[int64]*domain.Product{
+			20: {
+				ID:            20,
+				Name:          "Cat Food",
+				SKU:           "FOOD-001",
+				StockQuantity: 1,
+			},
+		},
+		cart: &domain.Cart{
+			ID:     200,
+			UserID: 2,
+			Items: []domain.CartItem{{
+				ProductID: 20,
+				Quantity:  2,
+				Price:     10,
+			}},
+		},
+	}
+	orderRepo := &txOrderRepo{store: store}
+	productRepo := &txProductRepo{store: store}
+	inventoryRepo := &txInventoryRepo{store: store}
+	cartRepo := &txCartRepo{store: store}
+
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
+	_, err := svc.CreateOrder(2, "ship", "bill", "", "card")
+	if err == nil {
+		t.Fatalf("expected error for insufficient stock")
+	}
+	if len(store.orders) != 0 || len(store.orderItems) != 0 {
+		t.Fatalf("expected no persisted order or items")
+	}
+	if store.cartCleared {
+		t.Fatalf("expected cart not cleared")
+	}
+}
+
+type staleAtomicProductRepo struct {
+	product      *domain.Product
+	atomicCalled bool
+}
+
+func (r *staleAtomicProductRepo) Create(product *domain.Product) error { return nil }
+func (r *staleAtomicProductRepo) Update(product *domain.Product) error { return nil }
+func (r *staleAtomicProductRepo) Delete(id int64) error                { return nil }
+func (r *staleAtomicProductRepo) FindByID(id int64) (*domain.Product, error) {
+	if r.product == nil {
+		return nil, errors.New("product not found")
+	}
+	return r.product, nil
+}
+func (r *staleAtomicProductRepo) FindBySKU(sku string) (*domain.Product, error) { return nil, nil }
+func (r *staleAtomicProductRepo) FindBySlug(slug string) (*domain.Product, error) {
+	return nil, nil
+}
+func (r *staleAtomicProductRepo) GetByIDs(ids []int64) ([]*domain.Product, error) {
+	if r.product == nil {
+		return nil, errors.New("product not found")
+	}
+	if len(ids) == 0 {
+		return []*domain.Product{}, nil
+	}
+	for _, id := range ids {
+		if r.product.ID == id {
+			return []*domain.Product{r.product}, nil
+		}
+	}
+	return nil, errors.New("product not found")
+}
+func (r *staleAtomicProductRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Product, error) {
+	return nil, nil
+}
+func (r *staleAtomicProductRepo) Count(filters map[string]interface{}) (int64, error) { return 0, nil }
+func (r *staleAtomicProductRepo) Search(query string, offset, limit int) ([]*domain.Product, error) {
+	return nil, nil
+}
+func (r *staleAtomicProductRepo) SearchCount(query string) (int64, error)  { return 0, nil }
+func (r *staleAtomicProductRepo) UpdateStock(id int64, quantity int) error { return nil }
+func (r *staleAtomicProductRepo) IncrementViews(id int64) error            { return nil }
+func (r *staleAtomicProductRepo) IncrementSales(id int64, quantity int) error {
+	return nil
+}
+func (r *staleAtomicProductRepo) UpdateStockWithDelta(id int64, delta int) error {
+	r.atomicCalled = true
+	return nil
+}
+
+func TestOrderServiceCreateOrderUsesAtomicStockUpdateWhenStaleRead(t *testing.T) {
+	orderRepo := &fakeOrderCreateRepo{}
+	productRepo := &staleAtomicProductRepo{product: &domain.Product{
+		ID:            50,
+		Name:          "Cat Collar",
+		SKU:           "COLLAR-001",
+		StockQuantity: 0,
+	}}
+	inventoryRepo := &fakeInventoryRepo{}
+	cartRepo := &fakeCartRepo{cart: &domain.Cart{
+		ID:     500,
+		UserID: 5,
+		Items: []domain.CartItem{{
+			ProductID: 50,
+			Quantity:  1,
+			Price:     8,
+		}},
+	}}
+
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
+	_, err := svc.CreateOrder(5, "ship", "bill", "", "card")
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	if !productRepo.atomicCalled {
+		t.Fatalf("expected atomic stock update to be used")
+	}
+	if len(inventoryRepo.logs) != 1 {
+		t.Fatalf("expected inventory log to be created")
+	}
+}
+
+type orderTestStore struct {
+	orders         []*domain.Order
+	orderItems     []*domain.OrderItem
+	inventoryLogs  []*domain.InventoryLog
+	cartCleared    bool
+	cart           *domain.Cart
+	products       map[int64]*domain.Product
+	updatedStock   map[int64]int
+	updateStockErr error
+	cartClearErr   error
+}
+
+func (s *orderTestStore) clone() *orderTestStore {
+	clone := &orderTestStore{
+		orders:         append([]*domain.Order{}, s.orders...),
+		orderItems:     append([]*domain.OrderItem{}, s.orderItems...),
+		inventoryLogs:  append([]*domain.InventoryLog{}, s.inventoryLogs...),
+		cartCleared:    s.cartCleared,
+		updateStockErr: s.updateStockErr,
+		cartClearErr:   s.cartClearErr,
+		updatedStock:   map[int64]int{},
+		products:       map[int64]*domain.Product{},
+	}
+	for id, product := range s.products {
+		copyProduct := *product
+		clone.products[id] = &copyProduct
+	}
+	for id, qty := range s.updatedStock {
+		clone.updatedStock[id] = qty
+	}
+	if s.cart != nil {
+		cartCopy := *s.cart
+		cartCopy.Items = append([]domain.CartItem{}, s.cart.Items...)
+		clone.cart = &cartCopy
+	}
+	return clone
+}
+
+type txOrderRepo struct {
+	store             *orderTestStore
+	transactionCalled bool
+}
+
+func (r *txOrderRepo) Create(order *domain.Order) error {
+	r.store.orders = append(r.store.orders, order)
+	return nil
+}
+func (r *txOrderRepo) Update(order *domain.Order) error                    { return nil }
+func (r *txOrderRepo) FindByID(id int64) (*domain.Order, error)            { return nil, nil }
+func (r *txOrderRepo) FindByOrderNo(orderNo string) (*domain.Order, error) { return nil, nil }
+func (r *txOrderRepo) FindByUserID(userID int64, offset, limit int) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (r *txOrderRepo) CountByUserID(userID int64) (int64, error) { return 0, nil }
+func (r *txOrderRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (r *txOrderRepo) Count(filters map[string]interface{}) (int64, error) { return 0, nil }
+func (r *txOrderRepo) UpdateStatus(id int64, status string) error          { return nil }
+func (r *txOrderRepo) CreateOrderItem(item *domain.OrderItem) error {
+	r.store.orderItems = append(r.store.orderItems, item)
+	return nil
+}
+func (r *txOrderRepo) Transaction(fn func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, paymentRepo repository.PaymentRepository) error) error {
+	r.transactionCalled = true
+	clone := r.store.clone()
+	orderRepo := &txOrderRepo{store: clone}
+	cartRepo := &txCartRepo{store: clone}
+	productRepo := &txProductRepo{store: clone}
+	inventoryRepo := &txInventoryRepo{store: clone}
+	if err := fn(orderRepo, cartRepo, productRepo, inventoryRepo, nil); err != nil {
+		return err
+	}
+	*r.store = *clone
+	return nil
+}
+
+type txCartRepo struct {
+	store *orderTestStore
+}
+
+func (r *txCartRepo) FindByUserID(userID int64) (*domain.Cart, error) { return r.store.cart, nil }
+func (r *txCartRepo) Create(cart *domain.Cart) error                  { return nil }
+func (r *txCartRepo) Update(cart *domain.Cart) error                  { return nil }
+func (r *txCartRepo) Delete(id int64) error                           { return nil }
+func (r *txCartRepo) AddItem(item *domain.CartItem) error             { return nil }
+func (r *txCartRepo) UpdateItem(item *domain.CartItem) error          { return nil }
+func (r *txCartRepo) RemoveItem(cartID, productID int64) error        { return nil }
+func (r *txCartRepo) ClearCart(cartID int64) error {
+	if r.store.cartClearErr != nil {
+		return r.store.cartClearErr
+	}
+	r.store.cartCleared = true
+	return nil
+}
+
+type txProductRepo struct {
+	store *orderTestStore
+}
+
+func (r *txProductRepo) Create(product *domain.Product) error { return nil }
+func (r *txProductRepo) Update(product *domain.Product) error { return nil }
+func (r *txProductRepo) Delete(id int64) error                { return nil }
+func (r *txProductRepo) FindByID(id int64) (*domain.Product, error) {
+	product, ok := r.store.products[id]
+	if !ok {
+		return nil, errors.New("product not found")
+	}
+	return product, nil
+}
+func (r *txProductRepo) FindBySKU(sku string) (*domain.Product, error) { return nil, nil }
+func (r *txProductRepo) FindBySlug(slug string) (*domain.Product, error) {
+	return nil, nil
+}
+func (r *txProductRepo) GetByIDs(ids []int64) ([]*domain.Product, error) {
+	products := make([]*domain.Product, 0, len(ids))
+	for _, id := range ids {
+		product, ok := r.store.products[id]
+		if !ok {
+			return nil, errors.New("product not found")
+		}
+		products = append(products, product)
+	}
+	return products, nil
+}
+func (r *txProductRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Product, error) {
+	return nil, nil
+}
+func (r *txProductRepo) Count(filters map[string]interface{}) (int64, error) { return 0, nil }
+func (r *txProductRepo) Search(query string, offset, limit int) ([]*domain.Product, error) {
+	return nil, nil
+}
+func (r *txProductRepo) SearchCount(query string) (int64, error) { return 0, nil }
+func (r *txProductRepo) UpdateStock(id int64, quantity int) error {
+	if r.store.updateStockErr != nil {
+		return r.store.updateStockErr
+	}
+	if r.store.updatedStock == nil {
+		r.store.updatedStock = map[int64]int{}
+	}
+	r.store.updatedStock[id] = quantity
+	return nil
+}
+func (r *txProductRepo) UpdateStockWithDelta(id int64, delta int) error {
+	product, ok := r.store.products[id]
+	if !ok {
+		return errors.New("product not found")
+	}
+	newStock := product.StockQuantity + delta
+	if newStock < 0 {
+		return errors.New("insufficient stock")
+	}
+	product.StockQuantity = newStock
+	return r.UpdateStock(id, newStock)
+}
+func (r *txProductRepo) IncrementViews(id int64) error               { return nil }
+func (r *txProductRepo) IncrementSales(id int64, quantity int) error { return nil }
+
+type txInventoryRepo struct {
+	store *orderTestStore
+}
+
+func (r *txInventoryRepo) Create(log *domain.InventoryLog) error {
+	r.store.inventoryLogs = append(r.store.inventoryLogs, log)
+	return nil
+}
+func (r *txInventoryRepo) FindByProductID(productID int64, offset, limit int) ([]*domain.InventoryLog, error) {
+	return nil, nil
+}
+func (r *txInventoryRepo) CountByProductID(productID int64) (int64, error) { return 0, nil }
+
+func TestOrderServiceCreateOrderRollsBackOnInventoryFailure(t *testing.T) {
+	store := &orderTestStore{
+		products: map[int64]*domain.Product{
+			30: {
+				ID:            30,
+				Name:          "Cat Bed",
+				SKU:           "BED-001",
+				StockQuantity: 5,
+			},
+		},
+		cart: &domain.Cart{
+			ID:     300,
+			UserID: 3,
+			Items: []domain.CartItem{{
+				ProductID: 30,
+				Quantity:  1,
+				Price:     99,
+			}},
+		},
+		updateStockErr: errors.New("update stock failed"),
+	}
+	orderRepo := &txOrderRepo{store: store}
+	productRepo := &txProductRepo{store: store}
+	inventoryRepo := &txInventoryRepo{store: store}
+	cartRepo := &txCartRepo{store: store}
+
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
+	_, err := svc.CreateOrder(3, "ship", "bill", "", "card")
+	if err == nil {
+		t.Fatalf("expected error for inventory update failure")
+	}
+	if !orderRepo.transactionCalled {
+		t.Fatalf("expected transaction to be used")
+	}
+	if len(store.orders) != 0 || len(store.orderItems) != 0 {
+		t.Fatalf("expected no persisted order or items after rollback")
+	}
+	if store.cartCleared {
+		t.Fatalf("expected cart not cleared after rollback")
+	}
+}
+
+func TestOrderServiceCreateOrderRollsBackOnCartClearFailure(t *testing.T) {
+	store := &orderTestStore{
+		products: map[int64]*domain.Product{
+			40: {
+				ID:            40,
+				Name:          "Cat Tower",
+				SKU:           "TOWER-001",
+				StockQuantity: 3,
+			},
+		},
+		cart: &domain.Cart{
+			ID:     400,
+			UserID: 4,
+			Items: []domain.CartItem{{
+				ProductID: 40,
+				Quantity:  1,
+				Price:     120,
+			}},
+		},
+		cartClearErr: errors.New("clear cart failed"),
+	}
+	orderRepo := &txOrderRepo{store: store}
+	productRepo := &txProductRepo{store: store}
+	inventoryRepo := &txInventoryRepo{store: store}
+	cartRepo := &txCartRepo{store: store}
+
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
+	_, err := svc.CreateOrder(4, "ship", "bill", "", "card")
+	if err == nil {
+		t.Fatalf("expected error for cart clear failure")
+	}
+	if !orderRepo.transactionCalled {
+		t.Fatalf("expected transaction to be used")
+	}
+	if len(store.orders) != 0 || len(store.orderItems) != 0 {
+		t.Fatalf("expected no persisted order or items after rollback")
+	}
+	if len(store.inventoryLogs) != 0 {
+		t.Fatalf("expected no inventory logs after rollback")
+	}
+	if store.cartCleared {
+		t.Fatalf("expected cart not cleared after rollback")
+	}
+}

@@ -1,0 +1,59 @@
+                                                                                                                                                                                                  
+     继续第四部分（约 200–300 字）：实现顺序与测试策略（TDD）。确认后我再给落地计划。                                                                                                                  
+                                                                                                                                                                                                       
+     第四部分：实现顺序与测试策略                                                                                                                                                                      
+     我们按“可运营优先”分四个小迭代：                                                                                                                                                                  
+     1) 商品/类目/库存：先实现 CRUD + 库存调整日志；测试用例覆盖创建、更新、筛选分页。                                                                                                                 
+     2) 订单/支付：实现订单列表、详情、状态变更；支付只读查询。测试重点是状态变更规则与分页筛选。                                                                                                      
+     3) UCP 运维接口：webhook-audits / alerts / jobs 列表 + retry（其中 alerts/jobs 已有基础实现，补测试覆盖）。                                                                                       
+     4) 一致性与边界：输入校验、空结果、无权限与不存在资源。                                                                                                                                           
+                                                                                                                                                                                                       
+     测试策略遵循 TDD：每个 handler 先写最小测试（HTTP 层集成测试），再实现 handler/service。需要 mock repository 的地方用轻量 fake 实现（已有范式）。最终跑 go test ./internal/api 与 go test         
+      ./internal/service。                                                                                                                                                                             
+     对外行为保持稳定：分页字段统一，错误码一致，避免破坏现有用户 API。                                                                                                                                
+                                                                                                                                                                                                       
+     这部分是否符合？如果认可，我就直接进入“落地计划 + 首批实现清单”。   
+
+
+
+
+
+
+
+
+
+
+
+
+     3) 订单/商品链路需要补全的点
+- 订单创建时商品名/SKU 仍是占位值：internal/service/order_service.go:43-45（ProductName: "Product Name", SKU: "SKU"），目前未从商品库读取真实字段。
+- 库存只记录了日志，没有实际扣减库存数量：internal/service/order_service.go:81-89 仅写 InventoryLog；真正的库存扣减逻辑在 internal/service/inventory_service.go:22-46，但这里未被调用。
+- 未见订单创建过程中的库存校验与并发安全处理；当前仅在加购物车时校验库存：internal/service/cart_service.go:30-39。
+- 建议补全方向（基于现有结构最小改动）：
+  1) 在创建订单时批量查商品信息（internal/repository/product_repository.go），填充 ProductName/SKU；
+  2) 用 InventoryService.AdjustStock 做扣减与记录，避免单纯写日志；
+  3) 将“订单创建 + 订单项写入 + 库存扣减 + 清购物车”包进 DB 事务，避免部分成功；
+  4) 如需防超卖，库存扣减需改为原子更新或加锁（目前 UpdateStock 直接覆盖：internal/repository/product_repository.go:94-95）。
+4) UCP webhook 流程与文档要点
+- 接口入口与路由：
+  - 接收 webhook：POST /ucp/v1/order-webhooks，入口在 cmd/api/main.go:187-206，处理逻辑在 internal/ucp/api/order_webhook_handler.go
+  - 管理侧查看队列与审计：
+    - GET /api/v1/admin/ucp/webhook-audits：internal/api/ucp_webhook_audit_handler.go
+    - GET /api/v1/admin/ucp/webhook-alerts：internal/api/ucp_webhook_alert_handler.go
+    - GET /api/v1/admin/ucp/webhook-jobs、POST /api/v1/admin/ucp/webhook-jobs/:id/retry：internal/api/ucp_webhook_job_handler.go
+- 认证与签名校验：
+  - Header 约定：UCP-Signature、UCP-Key-Id（见 internal/ucp/api/order_webhook_handler.go:22-25）
+  - 签名校验使用 JWK：cmd/api/main.go:68-70，JWK 地址配置在 configs/config.example.yaml:51-56
+  - 支持 skip_signature_verify 配置开关：configs/config.example.yaml:56
+- 防重放与去重：
+  - 先验签，后验 payload：internal/ucp/api/order_webhook_handler.go:54-69
+  - event_id 去重（已有记录直接 OK）：internal/ucp/api/order_webhook_handler.go:78-81
+  - payload hash 重放检测与标记：internal/ucp/api/order_webhook_handler.go:83-90
+- 入队与 worker：
+  - 入队为 DB 表（job）：internal/service/webhook_queue_service.go:18-30
+  - worker 在 cmd/worker/main.go：循环取 job、调用 delivery_url 推送（configs/config.example.yaml:54-55）
+  - 告警策略：cmd/worker/main.go:43-46，阈值/去重配置在 configs/config.example.yaml:57-58
+- 本地联调脚本（已可用，建议纳入文档）：
+  - scripts/dev-ucp.ps1：一键迁移、起 mock-jwks / mock-webhook / API / worker，并可触发 webhook 与检查状态。
+  - 相关 mock：cmd/mock-jwks/main.go、cmd/mock-webhook/main.go、cmd/send-webhook/main.go
+如果你希望我把这两部分整理成 README 里的“订单链路注意事项”与“UCP Webhook 文档”，我可以直接补文档并按你的格式输出。
