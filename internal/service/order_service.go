@@ -268,6 +268,99 @@ func (s *OrderService) UpdateOrderStatus(id int64, status string) error {
 	return nil
 }
 
+func (s *OrderService) CreateOrderFromCheckout(order *domain.Order, items []domain.OrderItem, idempotencyKey string) (*domain.Order, error) {
+	if order == nil {
+		return nil, errors.New("order is required")
+	}
+	if s.orderRepo == nil || s.productRepo == nil || s.inventoryRepo == nil || s.idempotencyRepo == nil {
+		return nil, errors.New("order dependencies unavailable")
+	}
+	userID := int64(0)
+	if order.UserID != nil {
+		userID = *order.UserID
+	}
+
+	var idempotencyRecord *domain.OrderIdempotency
+	if idempotencyKey != "" {
+		record, err := s.idempotencyRepo.FindByUserIDAndIdempotencyKey(userID, idempotencyKey)
+		if err == nil {
+			return resolveIdempotencyRecord(s.orderRepo, record)
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+
+		record = &domain.OrderIdempotency{
+			UserID:         userID,
+			IdempotencyKey: idempotencyKey,
+			Status:         "pending",
+		}
+		if err := s.idempotencyRepo.Create(record); err != nil {
+			recorded, lookupErr := s.idempotencyRepo.FindByUserIDAndIdempotencyKey(userID, idempotencyKey)
+			if lookupErr == nil {
+				return resolveIdempotencyRecord(s.orderRepo, recorded)
+			}
+			if errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return nil, err
+			}
+			return nil, lookupErr
+		}
+		idempotencyRecord = record
+		defer func() {
+			if idempotencyRecord != nil && idempotencyRecord.Status == "pending" {
+				idempotencyRecord.Status = "failed"
+				_ = s.idempotencyRepo.Update(idempotencyRecord)
+			}
+		}()
+	}
+
+	if err := s.orderRepo.Create(order); err != nil {
+		return nil, err
+	}
+
+	inventorySvc := NewInventoryService(s.productRepo, s.inventoryRepo)
+	for i := range items {
+		item := items[i]
+		product, err := s.productRepo.FindBySKU(item.SKU)
+		if err != nil {
+			return nil, errors.New("product not found")
+		}
+		productID := product.ID
+		item.ProductID = &productID
+		if item.ProductName == "" {
+			item.ProductName = product.Name
+		}
+		item.OrderID = order.ID
+		if err := s.orderRepo.CreateOrderItem(&item); err != nil {
+			return nil, err
+		}
+		if err := inventorySvc.AdjustStock(
+			productID,
+			-item.Quantity,
+			"out",
+			order.OrderNo,
+			"order",
+			fmt.Sprintf("Order %s created", order.OrderNo),
+		); err != nil {
+			return nil, err
+		}
+		if err := s.productRepo.IncrementSales(productID, item.Quantity); err != nil {
+			return nil, err
+		}
+	}
+
+	if idempotencyRecord != nil {
+		orderID := order.ID
+		idempotencyRecord.OrderID = &orderID
+		idempotencyRecord.Status = "completed"
+		if err := s.idempotencyRepo.Update(idempotencyRecord); err != nil {
+			return nil, err
+		}
+	}
+
+	return order, nil
+}
+
 func (s *OrderService) ListOrders(offset, limit int, filters map[string]interface{}) ([]*domain.Order, int64, error) {
 	filterCopy := map[string]interface{}{}
 	for key, value := range filters {

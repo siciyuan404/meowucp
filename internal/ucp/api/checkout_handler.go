@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -309,7 +310,7 @@ func (h *CheckoutHandler) Update(c *gin.Context) {
 }
 
 func (h *CheckoutHandler) Complete(c *gin.Context) {
-	if h.services == nil || h.services.Checkout == nil || h.services.UCPOrder == nil {
+	if h.services == nil || h.services.Checkout == nil || h.services.Order == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "service_unavailable"})
 		return
 	}
@@ -323,11 +324,6 @@ func (h *CheckoutHandler) Complete(c *gin.Context) {
 	var req model.CheckoutCompleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
-		return
-	}
-
-	if req.PaymentData.HandlerID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing_payment_data"})
 		return
 	}
 
@@ -345,47 +341,34 @@ func (h *CheckoutHandler) Complete(c *gin.Context) {
 
 	totals := computeTotals(lineItems)
 
-	orderItems := make([]*domain.OrderItem, 0, len(lineItems))
-	var subtotalMinor int64
-	for _, item := range lineItems {
-		subtotalMinor += item.Item.Price * int64(item.Quantity)
-		unitPrice := float64(item.Item.Price) / 100
-		orderItems = append(orderItems, &domain.OrderItem{
-			ProductName: item.Item.Title,
-			SKU:         item.Item.ID,
-			Quantity:    item.Quantity,
-			UnitPrice:   unitPrice,
-			TotalPrice:  unitPrice * float64(item.Quantity),
-		})
-	}
-
-	order := &domain.Order{
-		OrderNo:       buildOrderNo(checkoutID),
-		Status:        "paid",
-		Subtotal:      float64(subtotalMinor) / 100,
-		Total:         float64(subtotalMinor) / 100,
-		Currency:      session.Currency,
-		PaymentMethod: req.PaymentData.HandlerID,
-		PaymentStatus: "paid",
-	}
-
-	paymentPayload, err := json.Marshal(req.PaymentData)
+	order, orderItems, err := buildOrderFromCheckout(session, lineItems, req.PaymentData, true)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "order_build_failed"})
 		return
 	}
-
-	payment := &domain.Payment{
-		Amount:         float64(subtotalMinor) / 100,
-		PaymentMethod:  req.PaymentData.HandlerID,
-		Status:         "paid",
-		PaymentPayload: string(paymentPayload),
-	}
-
-	createdOrder, _, err := h.services.UCPOrder.CreateFromCheckout(order, orderItems, payment)
+	createdOrder, err := h.services.Order.CreateOrderFromCheckout(order, orderItems, "checkout:"+checkoutID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "complete_failed"})
 		return
+	}
+
+	if h.services.Payment != nil && req.PaymentData.HandlerID != "" {
+		paymentPayload, err := json.Marshal(req.PaymentData)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
+			return
+		}
+		payment := &domain.Payment{
+			OrderID:        createdOrder.ID,
+			Amount:         createdOrder.Total,
+			PaymentMethod:  req.PaymentData.HandlerID,
+			Status:         "paid",
+			PaymentPayload: string(paymentPayload),
+		}
+		if err := h.services.Payment.CreatePayment(payment); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "payment_create_failed"})
+			return
+		}
 	}
 
 	session.Status = "completed"
@@ -511,6 +494,44 @@ func loadPaymentHandlers(services *service.Services) []model.PaymentHandler {
 
 func buildOrderNo(checkoutID string) string {
 	return "ORD-" + checkoutID
+}
+
+func buildOrderFromCheckout(session *domain.CheckoutSession, lineItems []model.LineItem, payment model.PaymentInstrument, markPaid bool) (*domain.Order, []domain.OrderItem, error) {
+	if session == nil {
+		return nil, nil, errors.New("checkout session required")
+	}
+	orderItems := make([]domain.OrderItem, 0, len(lineItems))
+	var subtotalMinor int64
+	for _, item := range lineItems {
+		subtotalMinor += item.Item.Price * int64(item.Quantity)
+		unitPrice := float64(item.Item.Price) / 100
+		orderItems = append(orderItems, domain.OrderItem{
+			ProductName: item.Item.Title,
+			SKU:         item.Item.ID,
+			Quantity:    item.Quantity,
+			UnitPrice:   unitPrice,
+			TotalPrice:  unitPrice * float64(item.Quantity),
+		})
+	}
+
+	order := &domain.Order{
+		OrderNo:  buildOrderNo(session.ID),
+		Status:   "pending",
+		Subtotal: float64(subtotalMinor) / 100,
+		Total:    float64(subtotalMinor) / 100,
+		Currency: session.Currency,
+	}
+	if payment.HandlerID != "" {
+		order.PaymentMethod = payment.HandlerID
+	}
+	if payment.HandlerID != "" && markPaid {
+		order.Status = "paid"
+		order.PaymentStatus = "paid"
+		now := time.Now()
+		order.PaymentTime = &now
+	}
+
+	return order, orderItems, nil
 }
 
 func resolveMessagesAndStatus(hasHandlers bool, recoverable []model.Message, buyerInput []model.Message) (string, []model.Message) {

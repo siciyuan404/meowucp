@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jinzhu/gorm"
 	"github.com/meowucp/internal/domain"
 	"github.com/meowucp/internal/service"
 	"github.com/meowucp/internal/ucp/model"
@@ -148,6 +149,121 @@ func (f *fakePaymentRepo) List(offset, limit int, filters map[string]interface{}
 
 func (f *fakePaymentRepo) Count(filters map[string]interface{}) (int64, error) {
 	return int64(len(f.items)), nil
+}
+
+type fakeCheckoutProductRepo struct {
+	products map[string]*domain.Product
+	byID     map[int64]*domain.Product
+}
+
+func newFakeCheckoutProductRepo(products map[string]*domain.Product) *fakeCheckoutProductRepo {
+	byID := map[int64]*domain.Product{}
+	for _, product := range products {
+		byID[product.ID] = product
+	}
+	return &fakeCheckoutProductRepo{products: products, byID: byID}
+}
+
+func (f *fakeCheckoutProductRepo) Create(product *domain.Product) error { return nil }
+func (f *fakeCheckoutProductRepo) Update(product *domain.Product) error { return nil }
+func (f *fakeCheckoutProductRepo) Delete(id int64) error                { return nil }
+func (f *fakeCheckoutProductRepo) FindByID(id int64) (*domain.Product, error) {
+	product, ok := f.byID[id]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return product, nil
+}
+func (f *fakeCheckoutProductRepo) FindBySKU(sku string) (*domain.Product, error) {
+	product, ok := f.products[sku]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return product, nil
+}
+func (f *fakeCheckoutProductRepo) FindBySlug(slug string) (*domain.Product, error) {
+	return nil, errors.New("not implemented")
+}
+func (f *fakeCheckoutProductRepo) GetByIDs(ids []int64) ([]*domain.Product, error) {
+	return nil, errors.New("not implemented")
+}
+func (f *fakeCheckoutProductRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Product, error) {
+	return nil, errors.New("not implemented")
+}
+func (f *fakeCheckoutProductRepo) Count(filters map[string]interface{}) (int64, error) {
+	return 0, errors.New("not implemented")
+}
+func (f *fakeCheckoutProductRepo) Search(query string, offset, limit int) ([]*domain.Product, error) {
+	return nil, errors.New("not implemented")
+}
+func (f *fakeCheckoutProductRepo) SearchCount(query string) (int64, error) {
+	return 0, errors.New("not implemented")
+}
+func (f *fakeCheckoutProductRepo) UpdateStock(id int64, quantity int) error {
+	product, ok := f.byID[id]
+	if !ok {
+		return errors.New("not found")
+	}
+	product.StockQuantity = quantity
+	return nil
+}
+func (f *fakeCheckoutProductRepo) UpdateStockWithDelta(id int64, delta int) error {
+	product, ok := f.byID[id]
+	if !ok {
+		return errors.New("not found")
+	}
+	product.StockQuantity += delta
+	if product.StockQuantity < 0 {
+		return errors.New("insufficient stock")
+	}
+	return nil
+}
+func (f *fakeCheckoutProductRepo) IncrementViews(id int64) error { return nil }
+func (f *fakeCheckoutProductRepo) IncrementSales(id int64, quantity int) error {
+	return nil
+}
+
+type fakeCheckoutInventoryRepo struct {
+	logs []*domain.InventoryLog
+}
+
+func (f *fakeCheckoutInventoryRepo) Create(log *domain.InventoryLog) error {
+	f.logs = append(f.logs, log)
+	return nil
+}
+func (f *fakeCheckoutInventoryRepo) FindByProductID(productID int64, offset, limit int) ([]*domain.InventoryLog, error) {
+	return []*domain.InventoryLog{}, nil
+}
+func (f *fakeCheckoutInventoryRepo) CountByProductID(productID int64) (int64, error) {
+	return int64(len(f.logs)), nil
+}
+
+type fakeCheckoutIdempotencyRepo struct {
+	records map[string]*domain.OrderIdempotency
+}
+
+func newFakeCheckoutIdempotencyRepo() *fakeCheckoutIdempotencyRepo {
+	return &fakeCheckoutIdempotencyRepo{records: map[string]*domain.OrderIdempotency{}}
+}
+
+func (f *fakeCheckoutIdempotencyRepo) Create(record *domain.OrderIdempotency) error {
+	key := record.IdempotencyKey
+	if _, exists := f.records[key]; exists {
+		return errors.New("duplicate")
+	}
+	f.records[key] = record
+	return nil
+}
+func (f *fakeCheckoutIdempotencyRepo) FindByUserIDAndIdempotencyKey(userID int64, key string) (*domain.OrderIdempotency, error) {
+	record, ok := f.records[key]
+	if !ok || record.UserID != userID {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return record, nil
+}
+func (f *fakeCheckoutIdempotencyRepo) Update(record *domain.OrderIdempotency) error {
+	f.records[record.IdempotencyKey] = record
+	return nil
 }
 
 func TestCheckoutCreateAndGet(t *testing.T) {
@@ -752,18 +868,119 @@ func TestCheckoutUpdateRequiresEscalationWhenSignInNeeded(t *testing.T) {
 	}
 }
 
+func TestCheckoutCompleteCreatesOrder(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	checkoutRepo := newFakeCheckoutRepo()
+	orderRepo := newFakeOrderRepo()
+	productRepo := newFakeCheckoutProductRepo(map[string]*domain.Product{
+		"sku_1": {ID: 10, Name: "Test Item", SKU: "sku_1", StockQuantity: 5},
+	})
+	inventoryRepo := &fakeCheckoutInventoryRepo{}
+	idempotencyRepo := newFakeCheckoutIdempotencyRepo()
+
+	checkoutService := service.NewCheckoutSessionService(checkoutRepo)
+	orderService := service.NewOrderService(orderRepo, nil, productRepo, inventoryRepo, idempotencyRepo)
+	services := &service.Services{
+		Checkout: checkoutService,
+		Order:    orderService,
+	}
+
+	handler := NewCheckoutHandler(services)
+
+	r := gin.New()
+	r.POST("/ucp/v1/checkout-sessions", handler.Create)
+	r.POST("/ucp/v1/checkout-sessions/:id/complete", handler.Complete)
+
+	createBody := model.CheckoutCreateRequest{
+		Currency: "CNY",
+		LineItems: []model.LineItem{
+			{
+				Item: model.Item{
+					ID:    "sku_1",
+					Title: "Test Item",
+					Price: 19900,
+				},
+				Quantity: 1,
+			},
+		},
+	}
+
+	payload, err := json.Marshal(createBody)
+	if err != nil {
+		t.Fatalf("marshal create request: %v", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/ucp/v1/checkout-sessions", bytes.NewReader(payload))
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp := httptest.NewRecorder()
+	r.ServeHTTP(createResp, createReq)
+
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d", createResp.Code)
+	}
+
+	var created model.CheckoutSession
+	if err := json.Unmarshal(createResp.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+
+	completeBody := model.CheckoutCompleteRequest{
+		PaymentData: model.PaymentInstrument{
+			HandlerID: "com.nowpayments",
+			Type:      "card",
+			Credential: map[string]string{
+				"token": "tok_123",
+			},
+		},
+	}
+
+	completePayload, err := json.Marshal(completeBody)
+	if err != nil {
+		t.Fatalf("marshal complete request: %v", err)
+	}
+
+	completeReq := httptest.NewRequest(http.MethodPost, "/ucp/v1/checkout-sessions/"+created.ID+"/complete", bytes.NewReader(completePayload))
+	completeReq.Header.Set("Content-Type", "application/json")
+	completeResp := httptest.NewRecorder()
+	r.ServeHTTP(completeResp, completeReq)
+
+	if completeResp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", completeResp.Code)
+	}
+
+	var completed model.CheckoutSession
+	if err := json.Unmarshal(completeResp.Body.Bytes(), &completed); err != nil {
+		t.Fatalf("unmarshal complete response: %v", err)
+	}
+
+	if completed.Order == nil || completed.Order.ID == "" {
+		t.Fatalf("expected order id in response")
+	}
+	if orderRepo.createCount != 1 {
+		t.Fatalf("expected order created once")
+	}
+}
+
 func TestCheckoutCompleteCreatesOrderAndPayment(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	checkoutRepo := newFakeCheckoutRepo()
 	orderRepo := newFakeOrderRepo()
 	paymentRepo := newFakePaymentRepo()
+	productRepo := newFakeCheckoutProductRepo(map[string]*domain.Product{
+		"sku_1": {ID: 10, Name: "Test Item", SKU: "sku_1", StockQuantity: 5},
+	})
+	inventoryRepo := &fakeCheckoutInventoryRepo{}
+	idempotencyRepo := newFakeCheckoutIdempotencyRepo()
 	checkoutService := service.NewCheckoutSessionService(checkoutRepo)
-	ucpOrderService := service.NewUCPOrderService(orderRepo, paymentRepo)
+	orderService := service.NewOrderService(orderRepo, nil, productRepo, inventoryRepo, idempotencyRepo)
+	paymentService := service.NewPaymentService(paymentRepo, orderRepo)
 
 	services := &service.Services{
 		Checkout: checkoutService,
-		UCPOrder: ucpOrderService,
+		Order:    orderService,
+		Payment:  paymentService,
 	}
 
 	handler := NewCheckoutHandler(services)
@@ -848,6 +1065,117 @@ func TestCheckoutCompleteCreatesOrderAndPayment(t *testing.T) {
 	}
 	if paymentRepo.items[0].PaymentMethod != "com.nowpayments" {
 		t.Fatalf("expected payment method com.nowpayments")
+	}
+}
+
+func TestCheckoutCompleteIdempotent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	checkoutRepo := newFakeCheckoutRepo()
+	orderRepo := newFakeOrderRepo()
+	productRepo := newFakeCheckoutProductRepo(map[string]*domain.Product{
+		"sku_1": {ID: 10, Name: "Test Item", SKU: "sku_1", StockQuantity: 5},
+	})
+	inventoryRepo := &fakeCheckoutInventoryRepo{}
+	idempotencyRepo := newFakeCheckoutIdempotencyRepo()
+
+	checkoutService := service.NewCheckoutSessionService(checkoutRepo)
+	orderService := service.NewOrderService(orderRepo, nil, productRepo, inventoryRepo, idempotencyRepo)
+	services := &service.Services{
+		Checkout: checkoutService,
+		Order:    orderService,
+	}
+
+	handler := NewCheckoutHandler(services)
+
+	r := gin.New()
+	r.POST("/ucp/v1/checkout-sessions", handler.Create)
+	r.POST("/ucp/v1/checkout-sessions/:id/complete", handler.Complete)
+
+	createBody := model.CheckoutCreateRequest{
+		Currency: "CNY",
+		LineItems: []model.LineItem{
+			{
+				Item: model.Item{
+					ID:    "sku_1",
+					Title: "Test Item",
+					Price: 19900,
+				},
+				Quantity: 1,
+			},
+		},
+	}
+
+	payload, err := json.Marshal(createBody)
+	if err != nil {
+		t.Fatalf("marshal create request: %v", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/ucp/v1/checkout-sessions", bytes.NewReader(payload))
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp := httptest.NewRecorder()
+	r.ServeHTTP(createResp, createReq)
+
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d", createResp.Code)
+	}
+
+	var created model.CheckoutSession
+	if err := json.Unmarshal(createResp.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+
+	completeBody := model.CheckoutCompleteRequest{
+		PaymentData: model.PaymentInstrument{
+			HandlerID: "com.nowpayments",
+			Type:      "card",
+			Credential: map[string]string{
+				"token": "tok_123",
+			},
+		},
+	}
+
+	completePayload, err := json.Marshal(completeBody)
+	if err != nil {
+		t.Fatalf("marshal complete request: %v", err)
+	}
+
+	completeReq := httptest.NewRequest(http.MethodPost, "/ucp/v1/checkout-sessions/"+created.ID+"/complete", bytes.NewReader(completePayload))
+	completeReq.Header.Set("Content-Type", "application/json")
+	completeResp := httptest.NewRecorder()
+	r.ServeHTTP(completeResp, completeReq)
+
+	if completeResp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", completeResp.Code)
+	}
+
+	var first model.CheckoutSession
+	if err := json.Unmarshal(completeResp.Body.Bytes(), &first); err != nil {
+		t.Fatalf("unmarshal first complete response: %v", err)
+	}
+
+	completeReq2 := httptest.NewRequest(http.MethodPost, "/ucp/v1/checkout-sessions/"+created.ID+"/complete", bytes.NewReader(completePayload))
+	completeReq2.Header.Set("Content-Type", "application/json")
+	completeResp2 := httptest.NewRecorder()
+	r.ServeHTTP(completeResp2, completeReq2)
+
+	if completeResp2.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", completeResp2.Code)
+	}
+
+	var second model.CheckoutSession
+	if err := json.Unmarshal(completeResp2.Body.Bytes(), &second); err != nil {
+		t.Fatalf("unmarshal second complete response: %v", err)
+	}
+
+	if first.Order == nil || second.Order == nil || first.Order.ID == "" {
+		t.Fatalf("expected order ids to be set")
+	}
+	if first.Order.ID != second.Order.ID {
+		t.Fatalf("expected same order id on retry")
+	}
+	if orderRepo.createCount != 1 {
+		t.Fatalf("expected order created once")
 	}
 }
 
