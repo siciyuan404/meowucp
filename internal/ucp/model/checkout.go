@@ -6,9 +6,10 @@ type CheckoutCreateRequest struct {
 }
 
 type CheckoutUpdateRequest struct {
-	ID        string     `json:"id"`
-	LineItems []LineItem `json:"line_items"`
-	Currency  string     `json:"currency"`
+	ID             string     `json:"id"`
+	LineItems      []LineItem `json:"line_items"`
+	Currency       string     `json:"currency"`
+	RequiresSignIn bool       `json:"requires_sign_in"`
 }
 
 type CheckoutCompleteRequest struct {

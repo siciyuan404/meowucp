@@ -656,6 +656,103 @@ func TestCheckoutUpdate(t *testing.T) {
 	}
 }
 
+func TestCheckoutUpdateRequiresEscalationWhenSignInNeeded(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	repo := newFakeCheckoutRepo()
+	checkoutService := service.NewCheckoutSessionService(repo)
+	services := &service.Services{Checkout: checkoutService}
+
+	handler := NewCheckoutHandler(services)
+
+	r := gin.New()
+	r.POST("/ucp/v1/checkout-sessions", handler.Create)
+	r.PUT("/ucp/v1/checkout-sessions/:id", handler.Update)
+
+	createBody := model.CheckoutCreateRequest{
+		Currency: "CNY",
+		LineItems: []model.LineItem{
+			{
+				Item: model.Item{
+					ID:    "sku_1",
+					Title: "Test Item",
+					Price: 19900,
+				},
+				Quantity: 1,
+			},
+		},
+	}
+
+	payload, err := json.Marshal(createBody)
+	if err != nil {
+		t.Fatalf("marshal create request: %v", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/ucp/v1/checkout-sessions", bytes.NewReader(payload))
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp := httptest.NewRecorder()
+	r.ServeHTTP(createResp, createReq)
+
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d", createResp.Code)
+	}
+
+	var created model.CheckoutSession
+	if err := json.Unmarshal(createResp.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+
+	updateBody := map[string]any{
+		"id":       created.ID,
+		"currency": "CNY",
+		"line_items": []model.LineItem{
+			{
+				Item: model.Item{
+					ID:    "sku_1",
+					Title: "Test Item",
+					Price: 19900,
+				},
+				Quantity: 1,
+			},
+		},
+		"requires_sign_in": true,
+	}
+
+	updatePayload, err := json.Marshal(updateBody)
+	if err != nil {
+		t.Fatalf("marshal update request: %v", err)
+	}
+
+	updateReq := httptest.NewRequest(http.MethodPut, "/ucp/v1/checkout-sessions/"+created.ID, bytes.NewReader(updatePayload))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateResp := httptest.NewRecorder()
+	r.ServeHTTP(updateResp, updateReq)
+
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", updateResp.Code)
+	}
+
+	var updated model.CheckoutSession
+	if err := json.Unmarshal(updateResp.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("unmarshal update response: %v", err)
+	}
+
+	if updated.Status != "requires_escalation" {
+		t.Fatalf("expected status requires_escalation, got %s", updated.Status)
+	}
+
+	requiresSignIn := false
+	for _, message := range updated.Messages {
+		if message.Code == "requires_sign_in" && message.Severity == "requires_buyer_input" {
+			requiresSignIn = true
+			break
+		}
+	}
+	if !requiresSignIn {
+		t.Fatalf("expected requires_sign_in requires_buyer_input message")
+	}
+}
+
 func TestCheckoutCompleteCreatesOrderAndPayment(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

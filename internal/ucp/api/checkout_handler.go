@@ -228,6 +228,16 @@ func (h *CheckoutHandler) Update(c *gin.Context) {
 		})
 	}
 
+	buyerInputMessages := make([]model.Message, 0, 1)
+	if req.RequiresSignIn {
+		buyerInputMessages = append(buyerInputMessages, model.Message{
+			Type:     "error",
+			Code:     "requires_sign_in",
+			Content:  "Sign-in required",
+			Severity: "requires_buyer_input",
+		})
+	}
+
 	lineItemsJSON, err := json.Marshal(req.LineItems)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
@@ -250,7 +260,7 @@ func (h *CheckoutHandler) Update(c *gin.Context) {
 
 	continueURL := buildContinueURL(resolveBaseURL(c), h.config.ContinueURLBase, checkoutID, h.idGenerator)
 	paymentHandlers := loadPaymentHandlers(h.services)
-	status, messages := resolveMessagesAndStatus(len(paymentHandlers) > 0, recoverableMessages, nil)
+	status, messages := resolveMessagesAndStatus(len(paymentHandlers) > 0, recoverableMessages, buyerInputMessages)
 	messagesJSON, err := json.Marshal(messages)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
