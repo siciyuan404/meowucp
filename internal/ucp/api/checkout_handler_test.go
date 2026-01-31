@@ -213,8 +213,8 @@ func TestCheckoutCreateAndGet(t *testing.T) {
 	if created.Currency != "CNY" {
 		t.Fatalf("expected currency CNY, got %s", created.Currency)
 	}
-	if created.Status != "incomplete" {
-		t.Fatalf("expected status incomplete, got %s", created.Status)
+	if created.Status != "ready_for_complete" {
+		t.Fatalf("expected status ready_for_complete, got %s", created.Status)
 	}
 	if len(created.Totals) == 0 {
 		t.Fatalf("expected totals to be set")
@@ -493,7 +493,7 @@ func TestCheckoutCreateRequiresEscalationWhenNoHandlers(t *testing.T) {
 	}
 }
 
-func TestCheckoutCreateIncompleteOnRecoverableErrors(t *testing.T) {
+func TestCheckoutCreateRequiresEscalationOnRecoverableErrorsWithoutHandlers(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	checkoutRepo := newFakeCheckoutRepo()
@@ -544,8 +544,8 @@ func TestCheckoutCreateIncompleteOnRecoverableErrors(t *testing.T) {
 				t.Fatalf("unmarshal response: %v", err)
 			}
 
-			if created.Status != "incomplete" {
-				t.Fatalf("expected status incomplete, got %s", created.Status)
+			if created.Status != "requires_escalation" {
+				t.Fatalf("expected status requires_escalation, got %s", created.Status)
 			}
 
 			recoverable := false
