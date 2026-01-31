@@ -81,16 +81,21 @@ func (h *CheckoutHandler) Create(c *gin.Context) {
 		return
 	}
 
-	continueURL := buildContinueURL(resolveBaseURL(c), h.config.ContinueURLBase, "", h.idGenerator)
 	paymentHandlers := loadPaymentHandlers(h.services)
 	status, messages := resolveMessagesAndStatus(len(paymentHandlers) > 0, recoverableMessages, nil)
+	continueURL := ""
+	checkoutID := ""
+	if status == "requires_escalation" {
+		continueURL = buildContinueURL(resolveBaseURL(c), h.config.ContinueURLBase, "", h.idGenerator)
+		checkoutID = extractCheckoutID(continueURL, h.idGenerator)
+	} else {
+		checkoutID = h.idGenerator()
+	}
 	messagesJSON, err := json.Marshal(messages)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
 		return
 	}
-
-	checkoutID := extractCheckoutID(continueURL, h.idGenerator)
 	session := &domain.CheckoutSession{
 		ID:          checkoutID,
 		Status:      status,
@@ -258,9 +263,12 @@ func (h *CheckoutHandler) Update(c *gin.Context) {
 		return
 	}
 
-	continueURL := buildContinueURL(resolveBaseURL(c), h.config.ContinueURLBase, checkoutID, h.idGenerator)
 	paymentHandlers := loadPaymentHandlers(h.services)
 	status, messages := resolveMessagesAndStatus(len(paymentHandlers) > 0, recoverableMessages, buyerInputMessages)
+	continueURL := ""
+	if status == "requires_escalation" {
+		continueURL = buildContinueURL(resolveBaseURL(c), h.config.ContinueURLBase, checkoutID, h.idGenerator)
+	}
 	messagesJSON, err := json.Marshal(messages)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
@@ -508,12 +516,6 @@ func buildOrderNo(checkoutID string) string {
 func resolveMessagesAndStatus(hasHandlers bool, recoverable []model.Message, buyerInput []model.Message) (string, []model.Message) {
 	buyerInputMessages := append([]model.Message{}, buyerInput...)
 	if !hasHandlers {
-		buyerInputMessages = append(buyerInputMessages, model.Message{
-			Type:     "error",
-			Code:     "payment_required",
-			Content:  "Payment method required",
-			Severity: "requires_buyer_input",
-		})
 		buyerInputMessages = append(buyerInputMessages, model.Message{
 			Type:     "error",
 			Code:     "payment_handlers_missing",

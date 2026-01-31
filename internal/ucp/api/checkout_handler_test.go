@@ -216,6 +216,9 @@ func TestCheckoutCreateAndGet(t *testing.T) {
 	if created.Status != "ready_for_complete" {
 		t.Fatalf("expected status ready_for_complete, got %s", created.Status)
 	}
+	if created.ContinueURL != "" {
+		t.Fatalf("expected continue_url to be empty for ready_for_complete")
+	}
 	if len(created.Totals) == 0 {
 		t.Fatalf("expected totals to be set")
 	}
@@ -481,18 +484,14 @@ func TestCheckoutCreateRequiresEscalationWhenNoHandlers(t *testing.T) {
 		t.Fatalf("expected messages to be set")
 	}
 
-	paymentRequired := false
 	paymentHandlersMissing := false
 	for _, message := range created.Messages {
-		if message.Code == "payment_required" && message.Severity == "requires_buyer_input" {
-			paymentRequired = true
+		if message.Code == "payment_required" {
+			t.Fatalf("expected payment_required message to be omitted")
 		}
 		if message.Code == "payment_handlers_missing" && message.Severity == "requires_buyer_input" {
 			paymentHandlersMissing = true
 		}
-	}
-	if !paymentRequired {
-		t.Fatalf("expected payment_required requires_buyer_input message")
 	}
 	if !paymentHandlersMissing {
 		t.Fatalf("expected payment_handlers_missing requires_buyer_input message")
