@@ -106,3 +106,41 @@ func TestProfileIncludesNowPaymentsInstrumentSchema(t *testing.T) {
 		t.Fatalf("expected api_base in config")
 	}
 }
+
+func TestProfileIncludesOrderCapability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	services := &service.Services{}
+	handler := NewProfileHandler(services)
+
+	r := gin.New()
+	r.GET("/.well-known/ucp", handler.GetProfile)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/ucp", nil)
+	req.Host = "example.com"
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+
+	var profile model.Profile
+	if err := json.Unmarshal(resp.Body.Bytes(), &profile); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	found := false
+	for _, capability := range profile.UCP.Capabilities {
+		if capability.Name == orderName {
+			found = true
+			if capability.Extends != ucpServiceName {
+				t.Fatalf("expected order capability to extend %s", ucpServiceName)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected order capability")
+	}
+}
