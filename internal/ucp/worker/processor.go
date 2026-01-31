@@ -89,5 +89,13 @@ func (p *Processor) ProcessOnce(handler func(job *domain.UCPWebhookJob) error) (
 }
 
 func (p *Processor) retryDelay(attempt int) time.Duration {
-	return time.Duration(attempt) * p.config.BaseDelay
+	if attempt <= 1 {
+		return p.config.BaseDelay
+	}
+	backoff := time.Duration(1<<uint(attempt-1)) * p.config.BaseDelay
+	maxBackoff := time.Duration(1<<uint(p.config.MaxAttempts-1)) * p.config.BaseDelay
+	if backoff > maxBackoff {
+		return maxBackoff
+	}
+	return backoff
 }

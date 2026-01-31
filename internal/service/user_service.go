@@ -41,7 +41,7 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 		WebhookAudit:  NewWebhookAuditService(repos.WebhookAudit),
 		WebhookReplay: NewWebhookReplayService(repos.WebhookReplay),
 		WebhookQueue:  NewWebhookQueueService(repos.WebhookQueue),
-		WebhookAlert:  NewWebhookAlertService(repos.WebhookAlert),
+		WebhookAlert:  NewWebhookAlertService(repos.WebhookAlert, repos.Webhook),
 	}
 }
 

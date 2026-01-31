@@ -102,6 +102,37 @@ func TestProcessorRetriesOnFailure(t *testing.T) {
 	}
 }
 
+func TestProcessorRetryBackoff(t *testing.T) {
+	now := time.Date(2026, 1, 29, 10, 0, 0, 0, time.UTC)
+	store := &fakeQueueStore{
+		jobs: []*domain.UCPWebhookJob{
+			{ID: 1, EventID: "evt_1", Status: "pending", Attempts: 0, NextRetryAt: now},
+			{ID: 2, EventID: "evt_2", Status: "retrying", Attempts: 2, NextRetryAt: now},
+		},
+	}
+	processor := NewProcessor(store, ProcessorConfig{MaxAttempts: 5, BaseDelay: time.Minute})
+	processor.now = func() time.Time { return now }
+
+	_, err := processor.ProcessOnce(func(job *domain.UCPWebhookJob) error {
+		return errors.New("boom")
+	})
+	if err != nil {
+		t.Fatalf("process once: %v", err)
+	}
+	if len(store.updatedJobs) != 2 {
+		t.Fatalf("expected 2 updated jobs, got %d", len(store.updatedJobs))
+	}
+
+	firstDelay := store.updatedJobs[0].NextRetryAt.Sub(now)
+	thirdDelay := store.updatedJobs[1].NextRetryAt.Sub(now)
+	if firstDelay != time.Minute {
+		t.Fatalf("expected first delay 1m, got %s", firstDelay)
+	}
+	if thirdDelay != 4*time.Minute {
+		t.Fatalf("expected third delay 4m, got %s", thirdDelay)
+	}
+}
+
 func TestProcessorFailsAfterMaxAttempts(t *testing.T) {
 	now := time.Date(2026, 1, 29, 10, 0, 0, 0, time.UTC)
 	store := &fakeQueueStore{

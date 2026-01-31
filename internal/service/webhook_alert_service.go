@@ -1,16 +1,19 @@
 package service
 
 import (
+	"encoding/json"
+
 	"github.com/meowucp/internal/domain"
 	"github.com/meowucp/internal/repository"
 )
 
 type WebhookAlertService struct {
-	repo repository.UCPWebhookAlertRepository
+	repo      repository.UCPWebhookAlertRepository
+	eventRepo repository.UCPWebhookEventRepository
 }
 
-func NewWebhookAlertService(repo repository.UCPWebhookAlertRepository) *WebhookAlertService {
-	return &WebhookAlertService{repo: repo}
+func NewWebhookAlertService(repo repository.UCPWebhookAlertRepository, eventRepo repository.UCPWebhookEventRepository) *WebhookAlertService {
+	return &WebhookAlertService{repo: repo, eventRepo: eventRepo}
 }
 
 func (s *WebhookAlertService) Create(alert *domain.UCPWebhookAlert) error {
@@ -27,6 +30,25 @@ func (s *WebhookAlertService) List(offset, limit int) ([]*domain.UCPWebhookAlert
 	items, err := s.repo.List(offset, limit)
 	if err != nil {
 		return nil, 0, err
+	}
+	for _, alert := range items {
+		if alert == nil {
+			continue
+		}
+		details := map[string]string{
+			"event_id": alert.EventID,
+		}
+		if alert.Details != "" {
+			details["error"] = alert.Details
+		}
+		if s.eventRepo != nil && alert.EventID != "" {
+			if event, lookupErr := s.eventRepo.FindByEventID(alert.EventID); lookupErr == nil && event != nil {
+				details["order_id"] = event.OrderID
+			}
+		}
+		if payload, marshalErr := json.Marshal(details); marshalErr == nil {
+			alert.Details = string(payload)
+		}
 	}
 	count, err := s.repo.Count()
 	if err != nil {
