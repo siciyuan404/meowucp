@@ -43,9 +43,22 @@ func (h *CheckoutHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if req.Currency == "" || len(req.LineItems) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing_required_fields"})
-		return
+	recoverableMessages := make([]model.Message, 0, 2)
+	if req.Currency == "" {
+		recoverableMessages = append(recoverableMessages, model.Message{
+			Type:     "error",
+			Code:     "missing_field",
+			Content:  "Currency is required",
+			Severity: "recoverable",
+		})
+	}
+	if len(req.LineItems) == 0 {
+		recoverableMessages = append(recoverableMessages, model.Message{
+			Type:     "error",
+			Code:     "missing_field",
+			Content:  "Line items are required",
+			Severity: "recoverable",
+		})
 	}
 
 	lineItemsJSON, err := json.Marshal(req.LineItems)
@@ -70,7 +83,7 @@ func (h *CheckoutHandler) Create(c *gin.Context) {
 
 	continueURL := buildContinueURL(resolveBaseURL(c), h.config.ContinueURLBase, "", h.idGenerator)
 	paymentHandlers := loadPaymentHandlers(h.services)
-	status, messages := resolveCheckoutStatus(paymentHandlers)
+	status, messages := resolveMessagesAndStatus(len(paymentHandlers) > 0, recoverableMessages, nil)
 	messagesJSON, err := json.Marshal(messages)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
@@ -197,9 +210,22 @@ func (h *CheckoutHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if req.Currency == "" || len(req.LineItems) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing_required_fields"})
-		return
+	recoverableMessages := make([]model.Message, 0, 2)
+	if req.Currency == "" {
+		recoverableMessages = append(recoverableMessages, model.Message{
+			Type:     "error",
+			Code:     "missing_field",
+			Content:  "Currency is required",
+			Severity: "recoverable",
+		})
+	}
+	if len(req.LineItems) == 0 {
+		recoverableMessages = append(recoverableMessages, model.Message{
+			Type:     "error",
+			Code:     "missing_field",
+			Content:  "Line items are required",
+			Severity: "recoverable",
+		})
 	}
 
 	lineItemsJSON, err := json.Marshal(req.LineItems)
@@ -224,7 +250,7 @@ func (h *CheckoutHandler) Update(c *gin.Context) {
 
 	continueURL := buildContinueURL(resolveBaseURL(c), h.config.ContinueURLBase, checkoutID, h.idGenerator)
 	paymentHandlers := loadPaymentHandlers(h.services)
-	status, messages := resolveCheckoutStatus(paymentHandlers)
+	status, messages := resolveMessagesAndStatus(len(paymentHandlers) > 0, recoverableMessages, nil)
 	messagesJSON, err := json.Marshal(messages)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "encode_failed"})
@@ -469,19 +495,35 @@ func buildOrderNo(checkoutID string) string {
 	return "ORD-" + checkoutID
 }
 
-func resolveCheckoutStatus(handlers []model.PaymentHandler) (string, []model.Message) {
-	if len(handlers) == 0 {
-		return "requires_escalation", []model.Message{
-			{
-				Type:     "error",
-				Code:     "payment_required",
-				Content:  "Payment method required",
-				Severity: "requires_buyer_input",
-			},
-		}
+func resolveMessagesAndStatus(hasHandlers bool, recoverable []model.Message, buyerInput []model.Message) (string, []model.Message) {
+	buyerInputMessages := append([]model.Message{}, buyerInput...)
+	if !hasHandlers {
+		buyerInputMessages = append(buyerInputMessages, model.Message{
+			Type:     "error",
+			Code:     "payment_required",
+			Content:  "Payment method required",
+			Severity: "requires_buyer_input",
+		})
+		buyerInputMessages = append(buyerInputMessages, model.Message{
+			Type:     "error",
+			Code:     "payment_handlers_missing",
+			Content:  "Payment handlers are missing",
+			Severity: "requires_buyer_input",
+		})
 	}
 
-	return "incomplete", []model.Message{}
+	messages := make([]model.Message, 0, len(buyerInputMessages)+len(recoverable))
+	messages = append(messages, buyerInputMessages...)
+	messages = append(messages, recoverable...)
+
+	status := "ready_for_complete"
+	if len(buyerInputMessages) > 0 {
+		status = "requires_escalation"
+	} else if len(recoverable) > 0 {
+		status = "incomplete"
+	}
+
+	return status, messages
 }
 
 func resolvedLinks(baseURL string, configured []model.Link) []model.Link {
