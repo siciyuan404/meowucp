@@ -63,6 +63,7 @@ func (h *ProfileHandler) GetProfile(c *gin.Context) {
 					Version: ucpVersion,
 					Spec:    orderSpec,
 					Schema:  orderSchema,
+					Extends: ucpServiceName,
 				},
 			},
 		},
