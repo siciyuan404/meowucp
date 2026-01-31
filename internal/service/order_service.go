@@ -246,26 +246,42 @@ func (s *OrderService) ListUserOrders(userID int64, offset, limit int) ([]*domai
 }
 
 func (s *OrderService) UpdateOrderStatus(id int64, status string) error {
-	if status != "paid" {
-		return s.orderRepo.UpdateStatus(id, status)
+	var order *domain.Order
+	if status == "paid" {
+		var err error
+		order, err = s.orderRepo.FindByID(id)
+		if err != nil {
+			return err
+		}
+		order.Status = status
+		order.PaymentStatus = "paid"
+		now := time.Now()
+		order.PaymentTime = &now
+		if err := s.orderRepo.Update(order); err != nil {
+			return err
+		}
+	} else {
+		if err := s.orderRepo.UpdateStatus(id, status); err != nil {
+			return err
+		}
+		if s.webhookQueue != nil {
+			var err error
+			order, err = s.orderRepo.FindByID(id)
+			if err != nil {
+				return err
+			}
+			order.Status = status
+		}
 	}
-	order, err := s.orderRepo.FindByID(id)
-	if err != nil {
-		return err
+	if s.webhookQueue == nil || order == nil {
+		return nil
 	}
-	order.Status = status
-	order.PaymentStatus = "paid"
-	now := time.Now()
-	order.PaymentTime = &now
-	if err := s.orderRepo.Update(order); err != nil {
-		return err
-	}
-	if s.webhookQueue != nil {
+	if status == "paid" {
 		if _, err := s.webhookQueue.EnqueuePaidEvent(order); err != nil {
 			return err
 		}
 	}
-	return nil
+	return s.webhookQueue.EnqueueOrderEvent(order, status)
 }
 
 func (s *OrderService) CreateOrderFromCheckout(order *domain.Order, items []domain.OrderItem, idempotencyKey string) (*domain.Order, error) {

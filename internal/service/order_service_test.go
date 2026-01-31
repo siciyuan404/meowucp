@@ -147,6 +147,47 @@ func (f *fakeIdempotencyOrderRepo) Count(filters map[string]interface{}) (int64,
 func (f *fakeIdempotencyOrderRepo) UpdateStatus(id int64, status string) error   { return nil }
 func (f *fakeIdempotencyOrderRepo) CreateOrderItem(item *domain.OrderItem) error { return nil }
 
+type fakeOrderStatusRepo struct {
+	order *domain.Order
+}
+
+func (f *fakeOrderStatusRepo) Create(order *domain.Order) error                    { return nil }
+func (f *fakeOrderStatusRepo) Update(order *domain.Order) error                    { f.order = order; return nil }
+func (f *fakeOrderStatusRepo) FindByID(id int64) (*domain.Order, error)            { return f.order, nil }
+func (f *fakeOrderStatusRepo) FindByOrderNo(orderNo string) (*domain.Order, error) { return nil, nil }
+func (f *fakeOrderStatusRepo) FindByUserID(userID int64, offset, limit int) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (f *fakeOrderStatusRepo) CountByUserID(userID int64) (int64, error) { return 0, nil }
+func (f *fakeOrderStatusRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (f *fakeOrderStatusRepo) Count(filters map[string]interface{}) (int64, error) { return 0, nil }
+func (f *fakeOrderStatusRepo) UpdateStatus(id int64, status string) error {
+	if f.order != nil {
+		f.order.Status = status
+	}
+	return nil
+}
+func (f *fakeOrderStatusRepo) CreateOrderItem(item *domain.OrderItem) error { return nil }
+
+type fakeOrderWebhookQueueRepo struct {
+	last *domain.UCPWebhookJob
+}
+
+func (f *fakeOrderWebhookQueueRepo) Create(job *domain.UCPWebhookJob) error { f.last = job; return nil }
+func (f *fakeOrderWebhookQueueRepo) ListDue(limit int) ([]*domain.UCPWebhookJob, error) {
+	return []*domain.UCPWebhookJob{}, nil
+}
+func (f *fakeOrderWebhookQueueRepo) Update(job *domain.UCPWebhookJob) error { f.last = job; return nil }
+func (f *fakeOrderWebhookQueueRepo) List(offset, limit int) ([]*domain.UCPWebhookJob, error) {
+	return []*domain.UCPWebhookJob{}, nil
+}
+func (f *fakeOrderWebhookQueueRepo) Count() (int64, error) { return 0, nil }
+func (f *fakeOrderWebhookQueueRepo) FindByID(id int64) (*domain.UCPWebhookJob, error) {
+	return nil, errors.New("not found")
+}
+
 type fakeOrderIdempotencyRepo struct {
 	record     *domain.OrderIdempotency
 	createErr  error
@@ -563,6 +604,34 @@ func TestPaymentCallbackTriggersPaidWebhook(t *testing.T) {
 	}
 	if payload.Order.ID != "42" || payload.Order.Status != "paid" {
 		t.Fatalf("expected paid order payload")
+	}
+}
+
+func TestOrderServiceEnqueuesOrderWebhookOnStatusChange(t *testing.T) {
+	order := &domain.Order{ID: 1, OrderNo: "ORD-1", Status: "pending"}
+	orderRepo := &fakeOrderStatusRepo{order: order}
+	queueRepo := &fakeOrderWebhookQueueRepo{}
+	queueService := NewWebhookQueueService(queueRepo)
+
+	svc := NewOrderService(orderRepo, nil, nil, nil, nil)
+	svc.SetWebhookQueue(queueService)
+
+	if err := svc.UpdateOrderStatus(1, "paid"); err != nil {
+		t.Fatalf("update status: %v", err)
+	}
+	if queueRepo.last == nil {
+		t.Fatalf("expected webhook job to be enqueued")
+	}
+
+	var payload orderWebhookPayload
+	if err := json.Unmarshal([]byte(queueRepo.last.Payload), &payload); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if payload.EventType != "paid" {
+		t.Fatalf("expected event_type paid, got %s", payload.EventType)
+	}
+	if payload.OrderNo != "ORD-1" {
+		t.Fatalf("expected order_no ORD-1, got %s", payload.OrderNo)
 	}
 }
 

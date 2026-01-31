@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -45,6 +46,30 @@ func (f *fakeQueueRepo) FindByID(id int64) (*domain.UCPWebhookJob, error) {
 		return nil, errors.New("not found")
 	}
 	return job, nil
+}
+
+func TestBuildOrderWebhookPayload(t *testing.T) {
+	order := &domain.Order{OrderNo: "ORD-1", Status: "paid", CreatedAt: time.Unix(1000, 0).UTC()}
+	payload, err := buildOrderWebhookPayload(order, "paid")
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	var decoded orderWebhookPayload
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if decoded.EventType != "paid" {
+		t.Fatalf("expected event_type paid, got %s", decoded.EventType)
+	}
+	if decoded.OrderNo != "ORD-1" {
+		t.Fatalf("expected order_no ORD-1, got %s", decoded.OrderNo)
+	}
+	if decoded.Status != "paid" {
+		t.Fatalf("expected status paid, got %s", decoded.Status)
+	}
+	if decoded.CreatedAt.IsZero() {
+		t.Fatalf("expected created_at to be set")
+	}
 }
 
 func TestWebhookQueueRescheduleNow(t *testing.T) {
