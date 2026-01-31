@@ -98,6 +98,16 @@ type Order struct {
 	Payments        []Payment   `gorm:"foreignkey:OrderID"`
 }
 
+type OrderIdempotency struct {
+	ID             int64  `gorm:"primary_key"`
+	UserID         int64  `gorm:"index;not null"`
+	IdempotencyKey string `gorm:"not null"`
+	OrderID        *int64
+	Status         string `gorm:"not null;default:'pending'"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type OrderItem struct {
 	ID          int64  `gorm:"primary_key"`
 	OrderID     int64  `gorm:"index;not null"`
