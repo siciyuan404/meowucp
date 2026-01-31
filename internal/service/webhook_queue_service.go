@@ -1,10 +1,14 @@
 package service
 
 import (
+	"encoding/json"
+	"errors"
+	"strconv"
 	"time"
 
 	"github.com/meowucp/internal/domain"
 	"github.com/meowucp/internal/repository"
+	"github.com/meowucp/internal/ucp/model"
 )
 
 type WebhookQueueService struct {
@@ -28,6 +32,38 @@ func (s *WebhookQueueService) Enqueue(eventID string, payload string) error {
 		CreatedAt:   time.Now(),
 	}
 	return s.repo.Create(job)
+}
+
+func (s *WebhookQueueService) EnqueuePaidEvent(order *domain.Order) (string, error) {
+	if s == nil || s.repo == nil {
+		return "", nil
+	}
+	if order == nil {
+		return "", errors.New("order required")
+	}
+	eventID := "evt_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	status := order.Status
+	if status == "" {
+		status = "paid"
+	}
+	payload := model.OrderWebhookEvent{
+		EventID:   eventID,
+		EventType: "order.paid",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Order: model.OrderWebhookOrder{
+			ID:     strconv.FormatInt(order.ID, 10),
+			Status: status,
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	if err := s.Enqueue(eventID, string(body)); err != nil {
+		return "", err
+	}
+	return eventID, nil
 }
 
 func (s *WebhookQueueService) List(offset, limit int) ([]*domain.UCPWebhookJob, int64, error) {

@@ -26,12 +26,16 @@ type Services struct {
 }
 
 func NewServices(repos *repository.Repositories, redis *redis.Client) *Services {
+	orderService := NewOrderService(repos.Order, repos.Cart, repos.Product, repos.Inventory, repos.OrderIdempotency)
+	webhookQueue := NewWebhookQueueService(repos.WebhookQueue)
+	orderService.SetWebhookQueue(webhookQueue)
+
 	return &Services{
 		User:          NewUserService(repos.User),
 		Product:       NewProductService(repos.Product, repos.Inventory, redis),
 		Category:      NewCategoryService(repos.Category),
 		Cart:          NewCartService(repos.Cart, repos.Product),
-		Order:         NewOrderService(repos.Order, repos.Cart, repos.Product, repos.Inventory, repos.OrderIdempotency),
+		Order:         orderService,
 		Payment:       NewPaymentService(repos.Payment, repos.Order),
 		Inventory:     NewInventoryService(repos.Product, repos.Inventory),
 		Checkout:      NewCheckoutSessionService(repos.Checkout),
@@ -40,7 +44,7 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 		UCPOrder:      NewUCPOrderService(repos.Order, repos.Payment),
 		WebhookAudit:  NewWebhookAuditService(repos.WebhookAudit),
 		WebhookReplay: NewWebhookReplayService(repos.WebhookReplay),
-		WebhookQueue:  NewWebhookQueueService(repos.WebhookQueue),
+		WebhookQueue:  webhookQueue,
 		WebhookAlert:  NewWebhookAlertService(repos.WebhookAlert),
 	}
 }
