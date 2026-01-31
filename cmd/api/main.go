@@ -148,7 +148,7 @@ func main() {
 				adminCategoryHandler.Update(c)
 			})
 
-			adminInventoryHandler := api.NewAdminInventoryHandler(services.Inventory)
+			adminInventoryHandler := api.NewAdminInventoryHandler(adminInventoryServiceAdapter{svc: services.Inventory})
 			admin.POST("/inventory/adjust", func(c *gin.Context) {
 				adminInventoryHandler.Adjust(c)
 			})

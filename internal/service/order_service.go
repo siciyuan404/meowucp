@@ -84,10 +84,11 @@ func (s *OrderService) createOrderWithRepos(orderRepo repository.OrderRepository
 		if !ok {
 			return nil, errors.New("product not found")
 		}
+		productID := item.ProductID
 
 		subtotal += item.Price * float64(item.Quantity)
 		orderItems = append(orderItems, domain.OrderItem{
-			ProductID:   &item.ProductID,
+			ProductID:   &productID,
 			ProductName: product.Name,
 			SKU:         product.SKU,
 			Quantity:    item.Quantity,
@@ -134,6 +135,9 @@ func (s *OrderService) createOrderWithRepos(orderRepo repository.OrderRepository
 			"order",
 			fmt.Sprintf("Order %s created", orderNo),
 		); err != nil {
+			return nil, err
+		}
+		if err := productRepo.IncrementSales(*item.ProductID, item.Quantity); err != nil {
 			return nil, err
 		}
 	}

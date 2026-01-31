@@ -141,6 +141,14 @@ func (f *fakePaymentRepo) FindByTransactionID(transactionID string) (*domain.Pay
 	return nil, errors.New("not implemented")
 }
 
+func (f *fakePaymentRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Payment, error) {
+	return f.items, nil
+}
+
+func (f *fakePaymentRepo) Count(filters map[string]interface{}) (int64, error) {
+	return int64(len(f.items)), nil
+}
+
 func TestCheckoutCreateAndGet(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

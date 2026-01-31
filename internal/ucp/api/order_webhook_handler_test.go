@@ -116,6 +116,18 @@ func (f *fakeWebhookQueue) Update(_ *domain.UCPWebhookJob) error {
 	return nil
 }
 
+func (f *fakeWebhookQueue) List(_ int, _ int) ([]*domain.UCPWebhookJob, error) {
+	return []*domain.UCPWebhookJob{}, nil
+}
+
+func (f *fakeWebhookQueue) Count() (int64, error) {
+	return int64(len(f.items)), nil
+}
+
+func (f *fakeWebhookQueue) FindByID(_ int64) (*domain.UCPWebhookJob, error) {
+	return nil, errors.New("not implemented")
+}
+
 type fakeSignatureVerifier struct {
 	err error
 }
