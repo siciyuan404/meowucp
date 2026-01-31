@@ -73,7 +73,7 @@ type OrderRepository interface {
 
 type OrderIdempotencyRepository interface {
 	Create(record *domain.OrderIdempotency) error
-	FindByUserAndKey(userID int64, key string) (*domain.OrderIdempotency, error)
+	FindByUserIDAndKey(userID int64, key string) (*domain.OrderIdempotency, error)
 	Update(record *domain.OrderIdempotency) error
 }
 

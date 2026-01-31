@@ -17,7 +17,7 @@ func (r *orderIdempotencyRepository) Create(record *domain.OrderIdempotency) err
 	return r.db.Create(record).Error
 }
 
-func (r *orderIdempotencyRepository) FindByUserAndKey(userID int64, key string) (*domain.OrderIdempotency, error) {
+func (r *orderIdempotencyRepository) FindByUserIDAndKey(userID int64, key string) (*domain.OrderIdempotency, error) {
 	var record domain.OrderIdempotency
 	if err := r.db.Where("user_id = ? AND idempotency_key = ?", userID, key).First(&record).Error; err != nil {
 		return nil, err
