@@ -71,6 +71,12 @@ type OrderRepository interface {
 	CreateOrderItem(item *domain.OrderItem) error
 }
 
+type OrderIdempotencyRepository interface {
+	Create(record *domain.OrderIdempotency) error
+	FindByUserAndKey(userID int64, key string) (*domain.OrderIdempotency, error)
+	Update(record *domain.OrderIdempotency) error
+}
+
 type PaymentRepository interface {
 	Create(payment *domain.Payment) error
 	Update(payment *domain.Payment) error
@@ -137,37 +143,39 @@ type UCPWebhookAlertRepository interface {
 }
 
 type Repositories struct {
-	User          UserRepository
-	Product       ProductRepository
-	Category      CategoryRepository
-	Cart          CartRepository
-	Order         OrderRepository
-	Payment       PaymentRepository
-	Inventory     InventoryRepository
-	Checkout      CheckoutSessionRepository
-	Handler       PaymentHandlerRepository
-	Webhook       UCPWebhookEventRepository
-	WebhookAudit  UCPWebhookAuditRepository
-	WebhookReplay UCPWebhookReplayRepository
-	WebhookQueue  UCPWebhookQueueRepository
-	WebhookAlert  UCPWebhookAlertRepository
+	User             UserRepository
+	Product          ProductRepository
+	Category         CategoryRepository
+	Cart             CartRepository
+	Order            OrderRepository
+	OrderIdempotency OrderIdempotencyRepository
+	Payment          PaymentRepository
+	Inventory        InventoryRepository
+	Checkout         CheckoutSessionRepository
+	Handler          PaymentHandlerRepository
+	Webhook          UCPWebhookEventRepository
+	WebhookAudit     UCPWebhookAuditRepository
+	WebhookReplay    UCPWebhookReplayRepository
+	WebhookQueue     UCPWebhookQueueRepository
+	WebhookAlert     UCPWebhookAlertRepository
 }
 
 func NewRepositories(db *database.DB) *Repositories {
 	return &Repositories{
-		User:          NewUserRepository(db),
-		Product:       NewProductRepository(db),
-		Category:      NewCategoryRepository(db),
-		Cart:          NewCartRepository(db),
-		Order:         NewOrderRepository(db),
-		Payment:       NewPaymentRepository(db),
-		Inventory:     NewInventoryRepository(db),
-		Checkout:      NewCheckoutSessionRepository(db),
-		Handler:       NewPaymentHandlerRepository(db),
-		Webhook:       NewUCPWebhookEventRepository(db),
-		WebhookAudit:  NewUCPWebhookAuditRepository(db),
-		WebhookReplay: NewUCPWebhookReplayRepository(db),
-		WebhookQueue:  NewUCPWebhookQueueRepository(db),
-		WebhookAlert:  NewUCPWebhookAlertRepository(db),
+		User:             NewUserRepository(db),
+		Product:          NewProductRepository(db),
+		Category:         NewCategoryRepository(db),
+		Cart:             NewCartRepository(db),
+		Order:            NewOrderRepository(db),
+		OrderIdempotency: NewOrderIdempotencyRepository(db),
+		Payment:          NewPaymentRepository(db),
+		Inventory:        NewInventoryRepository(db),
+		Checkout:         NewCheckoutSessionRepository(db),
+		Handler:          NewPaymentHandlerRepository(db),
+		Webhook:          NewUCPWebhookEventRepository(db),
+		WebhookAudit:     NewUCPWebhookAuditRepository(db),
+		WebhookReplay:    NewUCPWebhookReplayRepository(db),
+		WebhookQueue:     NewUCPWebhookQueueRepository(db),
+		WebhookAlert:     NewUCPWebhookAlertRepository(db),
 	}
 }
