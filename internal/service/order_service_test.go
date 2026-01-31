@@ -1,12 +1,14 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/jinzhu/gorm"
 	"github.com/meowucp/internal/domain"
 	"github.com/meowucp/internal/repository"
+	"github.com/meowucp/internal/ucp/model"
 )
 
 type fakeOrderRepo struct {
@@ -36,6 +38,53 @@ func (f *fakeOrderRepo) Count(filters map[string]interface{}) (int64, error) {
 }
 func (f *fakeOrderRepo) UpdateStatus(id int64, status string) error   { return nil }
 func (f *fakeOrderRepo) CreateOrderItem(item *domain.OrderItem) error { return nil }
+
+type fakePaidOrderRepo struct {
+	order          *domain.Order
+	updateCalled   bool
+	updateStatusID int64
+	updateStatus   string
+}
+
+func (f *fakePaidOrderRepo) Create(order *domain.Order) error { return nil }
+func (f *fakePaidOrderRepo) Update(order *domain.Order) error {
+	f.order = order
+	f.updateCalled = true
+	return nil
+}
+func (f *fakePaidOrderRepo) FindByID(id int64) (*domain.Order, error)            { return f.order, nil }
+func (f *fakePaidOrderRepo) FindByOrderNo(orderNo string) (*domain.Order, error) { return nil, nil }
+func (f *fakePaidOrderRepo) FindByUserID(userID int64, offset, limit int) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (f *fakePaidOrderRepo) CountByUserID(userID int64) (int64, error) { return 0, nil }
+func (f *fakePaidOrderRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (f *fakePaidOrderRepo) Count(filters map[string]interface{}) (int64, error) { return 0, nil }
+func (f *fakePaidOrderRepo) UpdateStatus(id int64, status string) error {
+	f.updateStatusID = id
+	f.updateStatus = status
+	return nil
+}
+func (f *fakePaidOrderRepo) CreateOrderItem(item *domain.OrderItem) error { return nil }
+
+type fakeWebhookQueueRepo struct {
+	last *domain.UCPWebhookJob
+}
+
+func (f *fakeWebhookQueueRepo) Create(job *domain.UCPWebhookJob) error { f.last = job; return nil }
+func (f *fakeWebhookQueueRepo) ListDue(limit int) ([]*domain.UCPWebhookJob, error) {
+	return []*domain.UCPWebhookJob{}, nil
+}
+func (f *fakeWebhookQueueRepo) Update(job *domain.UCPWebhookJob) error { f.last = job; return nil }
+func (f *fakeWebhookQueueRepo) List(offset, limit int) ([]*domain.UCPWebhookJob, error) {
+	return []*domain.UCPWebhookJob{}, nil
+}
+func (f *fakeWebhookQueueRepo) Count() (int64, error) { return 0, nil }
+func (f *fakeWebhookQueueRepo) FindByID(id int64) (*domain.UCPWebhookJob, error) {
+	return nil, errors.New("not found")
+}
 
 type fakeOrderCreateRepo struct {
 	createdOrder *domain.Order
@@ -483,6 +532,37 @@ func TestOrderServiceCreateOrderHandlesIdempotencyCreateCollisionWithPendingReco
 	}
 	if orderRepo.createCalled {
 		t.Fatalf("expected no new order creation")
+	}
+}
+
+func TestPaymentCallbackTriggersPaidWebhook(t *testing.T) {
+	order := &domain.Order{ID: 42, Status: "pending"}
+	orderRepo := &fakePaidOrderRepo{order: order}
+	webhookRepo := &fakeWebhookQueueRepo{}
+	webhookQueue := NewWebhookQueueService(webhookRepo)
+
+	svc := NewOrderService(orderRepo, nil, nil, nil, nil)
+	svc.SetWebhookQueue(webhookQueue)
+
+	if err := svc.UpdateOrderStatus(42, "paid"); err != nil {
+		t.Fatalf("update order status: %v", err)
+	}
+	if webhookRepo.last == nil {
+		t.Fatalf("expected webhook job to be enqueued")
+	}
+
+	var payload model.OrderWebhookEvent
+	if err := json.Unmarshal([]byte(webhookRepo.last.Payload), &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.EventID == "" {
+		t.Fatalf("expected event_id to be set")
+	}
+	if payload.EventType != "order.paid" {
+		t.Fatalf("expected event_type order.paid")
+	}
+	if payload.Order.ID != "42" || payload.Order.Status != "paid" {
+		t.Fatalf("expected paid order payload")
 	}
 }
 

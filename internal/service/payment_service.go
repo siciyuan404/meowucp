@@ -1,6 +1,8 @@
 package service
 
 import (
+	"errors"
+
 	"github.com/meowucp/internal/domain"
 	"github.com/meowucp/internal/repository"
 )
@@ -59,4 +61,23 @@ func (s *PaymentService) ListPayments(offset, limit int, filters map[string]inte
 		return nil, 0, err
 	}
 	return items, count, nil
+}
+
+func (s *PaymentService) MarkPaymentPaid(orderID int64, transactionID string) error {
+	if s == nil || s.paymentRepo == nil {
+		return errors.New("payment repository unavailable")
+	}
+	payments, err := s.paymentRepo.FindByOrderID(orderID)
+	if err != nil {
+		return err
+	}
+	if len(payments) == 0 {
+		return errors.New("payment not found")
+	}
+	payment := payments[0]
+	payment.Status = "paid"
+	if transactionID != "" {
+		payment.TransactionID = transactionID
+	}
+	return s.paymentRepo.Update(payment)
 }

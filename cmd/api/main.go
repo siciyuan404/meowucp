@@ -68,6 +68,7 @@ func main() {
 	ucpVerifier := security.NewJWKVerifier(cfg.UCP.Webhook.JWKSetURL, cfg.UCP.Webhook.ClockSkewSeconds)
 	ucpVerifier.SetSkipVerify(cfg.UCP.Webhook.SkipSignatureVerify)
 	ucpOrderWebhookHandler := ucpapi.NewOrderWebhookHandlerWithVerifier(services, ucpVerifier)
+	paymentCallbackHandler := api.NewPaymentCallbackHandler(services.Payment, services.Order)
 
 	apiGroup := r.Group("/api/v1")
 	{
@@ -99,6 +100,9 @@ func main() {
 		orderHandler := api.NewOrderHandler(services.Order)
 		apiGroup.POST("/orders", func(c *gin.Context) {
 			orderHandler.Create(c)
+		})
+		apiGroup.POST("/payment/callback", func(c *gin.Context) {
+			paymentCallbackHandler.Handle(c)
 		})
 
 		admin := apiGroup.Group("/admin")
