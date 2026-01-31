@@ -96,6 +96,11 @@ func main() {
 			})
 		}
 
+		orderHandler := api.NewOrderHandler(services.Order)
+		apiGroup.POST("/orders", func(c *gin.Context) {
+			orderHandler.Create(c)
+		})
+
 		admin := apiGroup.Group("/admin")
 		admin.Use(authMiddleware.Auth(), authMiddleware.AdminOnly())
 		{
