@@ -481,15 +481,21 @@ func TestCheckoutCreateRequiresEscalationWhenNoHandlers(t *testing.T) {
 		t.Fatalf("expected messages to be set")
 	}
 
-	found := false
+	paymentRequired := false
+	paymentHandlersMissing := false
 	for _, message := range created.Messages {
 		if message.Code == "payment_required" && message.Severity == "requires_buyer_input" {
-			found = true
-			break
+			paymentRequired = true
+		}
+		if message.Code == "payment_handlers_missing" && message.Severity == "requires_buyer_input" {
+			paymentHandlersMissing = true
 		}
 	}
-	if !found {
+	if !paymentRequired {
 		t.Fatalf("expected payment_required requires_buyer_input message")
+	}
+	if !paymentHandlersMissing {
+		t.Fatalf("expected payment_handlers_missing requires_buyer_input message")
 	}
 }
 
