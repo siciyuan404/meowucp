@@ -68,6 +68,9 @@ func main() {
 	ucpVerifier := security.NewJWKVerifier(cfg.UCP.Webhook.JWKSetURL, cfg.UCP.Webhook.ClockSkewSeconds)
 	ucpVerifier.SetSkipVerify(cfg.UCP.Webhook.SkipSignatureVerify)
 	ucpOrderWebhookHandler := ucpapi.NewOrderWebhookHandlerWithVerifier(services, ucpVerifier)
+	oauthMetadataHandler := api.NewOAuthMetadataHandler()
+	oauthTokenHandler := api.NewOAuthTokenHandler()
+	oauthAuthorizeHandler := api.NewOAuthAuthorizeHandler()
 
 	apiGroup := r.Group("/api/v1")
 	{
@@ -187,6 +190,15 @@ func main() {
 
 	r.GET("/.well-known/ucp", func(c *gin.Context) {
 		ucpProfileHandler.GetProfile(c)
+	})
+	r.GET("/.well-known/oauth-authorization-server", func(c *gin.Context) {
+		oauthMetadataHandler.WellKnown(c)
+	})
+	r.POST("/oauth2/token", func(c *gin.Context) {
+		oauthTokenHandler.Token(c)
+	})
+	r.GET("/oauth2/authorize", func(c *gin.Context) {
+		oauthAuthorizeHandler.Authorize(c)
 	})
 
 	ucpGroup := r.Group("/ucp/v1")
