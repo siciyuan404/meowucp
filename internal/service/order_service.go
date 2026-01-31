@@ -5,36 +5,41 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jinzhu/gorm"
 	"github.com/meowucp/internal/domain"
 	"github.com/meowucp/internal/repository"
 )
 
 type OrderService struct {
-	orderRepo     repository.OrderRepository
-	cartRepo      repository.CartRepository
-	productRepo   repository.ProductRepository
-	inventoryRepo repository.InventoryRepository
+	orderRepo       repository.OrderRepository
+	cartRepo        repository.CartRepository
+	productRepo     repository.ProductRepository
+	inventoryRepo   repository.InventoryRepository
+	idempotencyRepo repository.OrderIdempotencyRepository
 }
 
-func NewOrderService(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository) *OrderService {
+func NewOrderService(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository) *OrderService {
 	return &OrderService{
-		orderRepo:     orderRepo,
-		cartRepo:      cartRepo,
-		productRepo:   productRepo,
-		inventoryRepo: inventoryRepo,
+		orderRepo:       orderRepo,
+		cartRepo:        cartRepo,
+		productRepo:     productRepo,
+		inventoryRepo:   inventoryRepo,
+		idempotencyRepo: idempotencyRepo,
 	}
 }
 
 type orderTransactionRunner interface {
-	Transaction(fn func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, paymentRepo repository.PaymentRepository) error) error
+	Transaction(fn func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository, paymentRepo repository.PaymentRepository) error) error
 }
 
-func (s *OrderService) CreateOrder(userID int64, shippingAddress, billingAddress, notes string, paymentMethod string) (*domain.Order, error) {
+var ErrOrderIdempotencyConflict = errors.New("order idempotency conflict")
+
+func (s *OrderService) CreateOrder(userID int64, idempotencyKey string, shippingAddress, billingAddress, notes string, paymentMethod string) (*domain.Order, error) {
 	if txRunner, ok := s.orderRepo.(orderTransactionRunner); ok {
 		var createdOrder *domain.Order
-		err := txRunner.Transaction(func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, paymentRepo repository.PaymentRepository) error {
+		err := txRunner.Transaction(func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository, paymentRepo repository.PaymentRepository) error {
 			var err error
-			createdOrder, err = s.createOrderWithRepos(orderRepo, cartRepo, productRepo, inventoryRepo, userID, shippingAddress, billingAddress, notes, paymentMethod)
+			createdOrder, err = s.createOrderWithRepos(orderRepo, cartRepo, productRepo, inventoryRepo, idempotencyRepo, userID, idempotencyKey, shippingAddress, billingAddress, notes, paymentMethod)
 			return err
 		})
 		if err != nil {
@@ -43,10 +48,40 @@ func (s *OrderService) CreateOrder(userID int64, shippingAddress, billingAddress
 		return createdOrder, nil
 	}
 
-	return s.createOrderWithRepos(s.orderRepo, s.cartRepo, s.productRepo, s.inventoryRepo, userID, shippingAddress, billingAddress, notes, paymentMethod)
+	return s.createOrderWithRepos(s.orderRepo, s.cartRepo, s.productRepo, s.inventoryRepo, s.idempotencyRepo, userID, idempotencyKey, shippingAddress, billingAddress, notes, paymentMethod)
 }
 
-func (s *OrderService) createOrderWithRepos(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, userID int64, shippingAddress, billingAddress, notes string, paymentMethod string) (*domain.Order, error) {
+func (s *OrderService) createOrderWithRepos(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository, userID int64, idempotencyKey string, shippingAddress, billingAddress, notes string, paymentMethod string) (*domain.Order, error) {
+	var idempotencyRecord *domain.OrderIdempotency
+	if idempotencyKey != "" {
+		if idempotencyRepo == nil {
+			return nil, errors.New("idempotency repository unavailable")
+		}
+		record, err := idempotencyRepo.FindByUserIDAndIdempotencyKey(userID, idempotencyKey)
+		if err == nil {
+			if record.OrderID != nil {
+				order, err := orderRepo.FindByID(*record.OrderID)
+				if err != nil {
+					return nil, err
+				}
+				return order, nil
+			}
+			return nil, ErrOrderIdempotencyConflict
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+		record = &domain.OrderIdempotency{
+			UserID:         userID,
+			IdempotencyKey: idempotencyKey,
+			Status:         "pending",
+		}
+		if err := idempotencyRepo.Create(record); err != nil {
+			return nil, err
+		}
+		idempotencyRecord = record
+	}
+
 	if cartRepo == nil || orderRepo == nil || productRepo == nil || inventoryRepo == nil {
 		return nil, errors.New("order dependencies unavailable")
 	}
@@ -144,6 +179,15 @@ func (s *OrderService) createOrderWithRepos(orderRepo repository.OrderRepository
 
 	if err := cartRepo.ClearCart(cart.ID); err != nil {
 		return nil, err
+	}
+
+	if idempotencyRecord != nil {
+		orderID := order.ID
+		idempotencyRecord.OrderID = &orderID
+		idempotencyRecord.Status = "completed"
+		if err := idempotencyRepo.Update(idempotencyRecord); err != nil {
+			return nil, err
+		}
 	}
 
 	return order, nil

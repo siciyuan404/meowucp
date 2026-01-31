@@ -76,12 +76,12 @@ func (r *ucpTxOrderRepo) CreateOrderItem(item *domain.OrderItem) error {
 	r.store.items = append(r.store.items, item)
 	return nil
 }
-func (r *ucpTxOrderRepo) Transaction(fn func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, paymentRepo repository.PaymentRepository) error) error {
+func (r *ucpTxOrderRepo) Transaction(fn func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository, paymentRepo repository.PaymentRepository) error) error {
 	r.transactionCalled = true
 	clone := r.store.clone()
 	orderRepo := &ucpTxOrderRepo{store: clone}
 	paymentRepo := &ucpTxPaymentRepo{store: clone, createErr: r.paymentCreateErr}
-	if err := fn(orderRepo, nil, nil, nil, paymentRepo); err != nil {
+	if err := fn(orderRepo, nil, nil, nil, nil, paymentRepo); err != nil {
 		return err
 	}
 	*r.store = *clone

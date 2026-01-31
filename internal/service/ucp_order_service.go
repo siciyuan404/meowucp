@@ -20,14 +20,14 @@ func NewUCPOrderService(orderRepo repository.OrderRepository, paymentRepo reposi
 }
 
 type ucpOrderTransactionRunner interface {
-	Transaction(fn func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, paymentRepo repository.PaymentRepository) error) error
+	Transaction(fn func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository, paymentRepo repository.PaymentRepository) error) error
 }
 
 func (s *UCPOrderService) CreateFromCheckout(order *domain.Order, items []*domain.OrderItem, payment *domain.Payment) (*domain.Order, *domain.Payment, error) {
 	if txRunner, ok := s.orderRepo.(ucpOrderTransactionRunner); ok {
 		var createdOrder *domain.Order
 		var createdPayment *domain.Payment
-		err := txRunner.Transaction(func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, paymentRepo repository.PaymentRepository) error {
+		err := txRunner.Transaction(func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository, paymentRepo repository.PaymentRepository) error {
 			var err error
 			createdOrder, createdPayment, err = s.createFromCheckoutWithRepos(orderRepo, paymentRepo, order, items, payment)
 			return err

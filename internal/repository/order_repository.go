@@ -100,12 +100,12 @@ func (r *orderRepository) CreateOrderItem(item *domain.OrderItem) error {
 	return r.db.Create(item).Error
 }
 
-func (r *orderRepository) Transaction(fn func(orderRepo OrderRepository, cartRepo CartRepository, productRepo ProductRepository, inventoryRepo InventoryRepository, paymentRepo PaymentRepository) error) error {
+func (r *orderRepository) Transaction(fn func(orderRepo OrderRepository, cartRepo CartRepository, productRepo ProductRepository, inventoryRepo InventoryRepository, idempotencyRepo OrderIdempotencyRepository, paymentRepo PaymentRepository) error) error {
 	if r.db == nil {
 		return errors.New("database not initialized")
 	}
 	return r.db.Transaction(func(tx *database.DB) error {
 		repos := NewRepositories(tx)
-		return fn(repos.Order, repos.Cart, repos.Product, repos.Inventory, repos.Payment)
+		return fn(repos.Order, repos.Cart, repos.Product, repos.Inventory, repos.OrderIdempotency, repos.Payment)
 	})
 }

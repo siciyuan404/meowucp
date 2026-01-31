@@ -31,7 +31,7 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 		Product:       NewProductService(repos.Product, repos.Inventory, redis),
 		Category:      NewCategoryService(repos.Category),
 		Cart:          NewCartService(repos.Cart, repos.Product),
-		Order:         NewOrderService(repos.Order, repos.Cart, repos.Product, repos.Inventory),
+		Order:         NewOrderService(repos.Order, repos.Cart, repos.Product, repos.Inventory, repos.OrderIdempotency),
 		Payment:       NewPaymentService(repos.Payment, repos.Order),
 		Inventory:     NewInventoryService(repos.Product, repos.Inventory),
 		Checkout:      NewCheckoutSessionService(repos.Checkout),

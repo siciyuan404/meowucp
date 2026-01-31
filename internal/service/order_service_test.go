@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jinzhu/gorm"
 	"github.com/meowucp/internal/domain"
 	"github.com/meowucp/internal/repository"
 )
@@ -67,6 +68,66 @@ func (f *fakeOrderCreateRepo) CreateOrderItem(item *domain.OrderItem) error {
 		return f.itemErr
 	}
 	f.createdItems = append(f.createdItems, item)
+	return nil
+}
+
+type fakeIdempotencyOrderRepo struct {
+	order        *domain.Order
+	createCalled bool
+}
+
+func (f *fakeIdempotencyOrderRepo) Create(order *domain.Order) error {
+	f.createCalled = true
+	return errors.New("unexpected create")
+}
+func (f *fakeIdempotencyOrderRepo) Update(order *domain.Order) error         { return nil }
+func (f *fakeIdempotencyOrderRepo) FindByID(id int64) (*domain.Order, error) { return f.order, nil }
+func (f *fakeIdempotencyOrderRepo) FindByOrderNo(orderNo string) (*domain.Order, error) {
+	return nil, nil
+}
+func (f *fakeIdempotencyOrderRepo) FindByUserID(userID int64, offset, limit int) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (f *fakeIdempotencyOrderRepo) CountByUserID(userID int64) (int64, error) { return 0, nil }
+func (f *fakeIdempotencyOrderRepo) List(offset, limit int, filters map[string]interface{}) ([]*domain.Order, error) {
+	return nil, nil
+}
+func (f *fakeIdempotencyOrderRepo) Count(filters map[string]interface{}) (int64, error) {
+	return 0, nil
+}
+func (f *fakeIdempotencyOrderRepo) UpdateStatus(id int64, status string) error   { return nil }
+func (f *fakeIdempotencyOrderRepo) CreateOrderItem(item *domain.OrderItem) error { return nil }
+
+type fakeOrderIdempotencyRepo struct {
+	record     *domain.OrderIdempotency
+	createErr  error
+	updateErr  error
+	createCall int
+	updateCall int
+}
+
+func (f *fakeOrderIdempotencyRepo) Create(record *domain.OrderIdempotency) error {
+	if f.createErr != nil {
+		return f.createErr
+	}
+	f.record = record
+	f.createCall++
+	return nil
+}
+
+func (f *fakeOrderIdempotencyRepo) FindByUserIDAndIdempotencyKey(userID int64, key string) (*domain.OrderIdempotency, error) {
+	if f.record == nil || f.record.UserID != userID || f.record.IdempotencyKey != key {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return f.record, nil
+}
+
+func (f *fakeOrderIdempotencyRepo) Update(record *domain.OrderIdempotency) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	f.record = record
+	f.updateCall++
 	return nil
 }
 
@@ -221,7 +282,7 @@ func (r *batchOnlyProductRepo) GetByIDs(ids []int64) ([]*domain.Product, error) 
 
 func TestOrderServiceListOrders(t *testing.T) {
 	repo := &fakeOrderRepo{items: []*domain.Order{{ID: 1}, {ID: 2}, {ID: 3}}}
-	svc := NewOrderService(repo, nil, nil, nil)
+	svc := NewOrderService(repo, nil, nil, nil, nil)
 
 	items, total, err := svc.ListOrders(1, 1, map[string]interface{}{})
 	if err != nil {
@@ -232,6 +293,84 @@ func TestOrderServiceListOrders(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].ID != 2 {
 		t.Fatalf("expected item id 2")
+	}
+}
+
+func TestOrderServiceCreateOrderReturnsExistingOrderForIdempotencyKey(t *testing.T) {
+	orderID := int64(101)
+	existingOrder := &domain.Order{ID: orderID, OrderNo: "ORD-existing"}
+	orderRepo := &fakeIdempotencyOrderRepo{order: existingOrder}
+	productRepo := &fakeProductRepo{products: map[int64]*domain.Product{
+		10: {
+			ID:            10,
+			Name:          "Cat Toy",
+			SKU:           "CAT-TOY-001",
+			StockQuantity: 5,
+		},
+	}}
+	inventoryRepo := &fakeInventoryRepo{}
+	cartRepo := &fakeCartRepo{cart: &domain.Cart{
+		ID:     100,
+		UserID: 1,
+		Items: []domain.CartItem{{
+			ProductID: 10,
+			Quantity:  1,
+			Price:     10,
+		}},
+	}}
+	idempotencyRepo := &fakeOrderIdempotencyRepo{record: &domain.OrderIdempotency{
+		UserID:         1,
+		IdempotencyKey: "key-1",
+		OrderID:        &orderID,
+		Status:         "completed",
+	}}
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, idempotencyRepo)
+
+	order, err := svc.CreateOrder(1, "key-1", "ship", "bill", "", "card")
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	if order == nil || order.ID != orderID {
+		t.Fatalf("expected existing order to be returned")
+	}
+	if orderRepo.createCalled {
+		t.Fatalf("expected no new order creation")
+	}
+}
+
+func TestOrderServiceCreateOrderReturnsConflictForPendingIdempotencyKey(t *testing.T) {
+	orderRepo := &fakeIdempotencyOrderRepo{}
+	productRepo := &fakeProductRepo{products: map[int64]*domain.Product{
+		20: {
+			ID:            20,
+			Name:          "Cat Treats",
+			SKU:           "TREATS-001",
+			StockQuantity: 5,
+		},
+	}}
+	inventoryRepo := &fakeInventoryRepo{}
+	cartRepo := &fakeCartRepo{cart: &domain.Cart{
+		ID:     200,
+		UserID: 2,
+		Items: []domain.CartItem{{
+			ProductID: 20,
+			Quantity:  1,
+			Price:     12,
+		}},
+	}}
+	idempotencyRepo := &fakeOrderIdempotencyRepo{record: &domain.OrderIdempotency{
+		UserID:         2,
+		IdempotencyKey: "key-2",
+		Status:         "pending",
+	}}
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, idempotencyRepo)
+
+	_, err := svc.CreateOrder(2, "key-2", "ship", "bill", "", "card")
+	if !errors.Is(err, ErrOrderIdempotencyConflict) {
+		t.Fatalf("expected idempotency conflict error")
+	}
+	if orderRepo.createCalled {
+		t.Fatalf("expected no new order creation")
 	}
 }
 
@@ -256,8 +395,8 @@ func TestOrderServiceCreateOrderFillsProductInfoAndAdjustsStock(t *testing.T) {
 		}},
 	}}
 
-	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
-	order, err := svc.CreateOrder(1, "ship", "bill", "", "card")
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, nil)
+	order, err := svc.CreateOrder(1, "", "ship", "bill", "", "card")
 	if err != nil {
 		t.Fatalf("create order: %v", err)
 	}
@@ -313,8 +452,8 @@ func TestOrderServiceCreateOrderUsesBatchProductLookup(t *testing.T) {
 		}},
 	}}
 
-	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
-	_, err := svc.CreateOrder(9, "ship", "bill", "", "card")
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, nil)
+	_, err := svc.CreateOrder(9, "", "ship", "bill", "", "card")
 	if err != nil {
 		t.Fatalf("create order: %v", err)
 	}
@@ -345,8 +484,8 @@ func TestOrderServiceCreateOrderRejectsInsufficientStock(t *testing.T) {
 	inventoryRepo := &txInventoryRepo{store: store}
 	cartRepo := &txCartRepo{store: store}
 
-	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
-	_, err := svc.CreateOrder(2, "ship", "bill", "", "card")
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, nil)
+	_, err := svc.CreateOrder(2, "", "ship", "bill", "", "card")
 	if err == nil {
 		t.Fatalf("expected error for insufficient stock")
 	}
@@ -427,8 +566,8 @@ func TestOrderServiceCreateOrderUsesAtomicStockUpdateWhenStaleRead(t *testing.T)
 		}},
 	}}
 
-	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
-	_, err := svc.CreateOrder(5, "ship", "bill", "", "card")
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, nil)
+	_, err := svc.CreateOrder(5, "", "ship", "bill", "", "card")
 	if err != nil {
 		t.Fatalf("create order: %v", err)
 	}
@@ -508,14 +647,14 @@ func (r *txOrderRepo) CreateOrderItem(item *domain.OrderItem) error {
 	r.store.orderItems = append(r.store.orderItems, item)
 	return nil
 }
-func (r *txOrderRepo) Transaction(fn func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, paymentRepo repository.PaymentRepository) error) error {
+func (r *txOrderRepo) Transaction(fn func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository, paymentRepo repository.PaymentRepository) error) error {
 	r.transactionCalled = true
 	clone := r.store.clone()
 	orderRepo := &txOrderRepo{store: clone}
 	cartRepo := &txCartRepo{store: clone}
 	productRepo := &txProductRepo{store: clone}
 	inventoryRepo := &txInventoryRepo{store: clone}
-	if err := fn(orderRepo, cartRepo, productRepo, inventoryRepo, nil); err != nil {
+	if err := fn(orderRepo, cartRepo, productRepo, inventoryRepo, nil, nil); err != nil {
 		return err
 	}
 	*r.store = *clone
@@ -648,8 +787,8 @@ func TestOrderServiceCreateOrderRollsBackOnInventoryFailure(t *testing.T) {
 	inventoryRepo := &txInventoryRepo{store: store}
 	cartRepo := &txCartRepo{store: store}
 
-	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
-	_, err := svc.CreateOrder(3, "ship", "bill", "", "card")
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, nil)
+	_, err := svc.CreateOrder(3, "", "ship", "bill", "", "card")
 	if err == nil {
 		t.Fatalf("expected error for inventory update failure")
 	}
@@ -690,8 +829,8 @@ func TestOrderServiceCreateOrderRollsBackOnCartClearFailure(t *testing.T) {
 	inventoryRepo := &txInventoryRepo{store: store}
 	cartRepo := &txCartRepo{store: store}
 
-	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
-	_, err := svc.CreateOrder(4, "ship", "bill", "", "card")
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, nil)
+	_, err := svc.CreateOrder(4, "", "ship", "bill", "", "card")
 	if err == nil {
 		t.Fatalf("expected error for cart clear failure")
 	}
@@ -744,8 +883,8 @@ func TestOrderServiceCreateOrderIncrementsProductSales(t *testing.T) {
 	inventoryRepo := &txInventoryRepo{store: store}
 	cartRepo := &txCartRepo{store: store}
 
-	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo)
-	_, err := svc.CreateOrder(6, "ship", "bill", "", "card")
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, nil)
+	_, err := svc.CreateOrder(6, "", "ship", "bill", "", "card")
 	if err != nil {
 		t.Fatalf("create order: %v", err)
 	}
