@@ -39,7 +39,7 @@ func (s *OrderService) CreateOrder(userID int64, idempotencyKey string, shipping
 		var createdOrder *domain.Order
 		err := txRunner.Transaction(func(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository, paymentRepo repository.PaymentRepository) error {
 			var err error
-			createdOrder, err = s.createOrderWithRepos(orderRepo, cartRepo, productRepo, inventoryRepo, idempotencyRepo, userID, idempotencyKey, shippingAddress, billingAddress, notes, paymentMethod)
+			createdOrder, err = s.createOrderWithRepos(orderRepo, cartRepo, productRepo, inventoryRepo, idempotencyRepo, userID, idempotencyKey, shippingAddress, billingAddress, notes, paymentMethod, true)
 			return err
 		})
 		if err != nil {
@@ -48,10 +48,21 @@ func (s *OrderService) CreateOrder(userID int64, idempotencyKey string, shipping
 		return createdOrder, nil
 	}
 
-	return s.createOrderWithRepos(s.orderRepo, s.cartRepo, s.productRepo, s.inventoryRepo, s.idempotencyRepo, userID, idempotencyKey, shippingAddress, billingAddress, notes, paymentMethod)
+	return s.createOrderWithRepos(s.orderRepo, s.cartRepo, s.productRepo, s.inventoryRepo, s.idempotencyRepo, userID, idempotencyKey, shippingAddress, billingAddress, notes, paymentMethod, false)
 }
 
-func (s *OrderService) createOrderWithRepos(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository, userID int64, idempotencyKey string, shippingAddress, billingAddress, notes string, paymentMethod string) (*domain.Order, error) {
+func resolveIdempotencyRecord(orderRepo repository.OrderRepository, record *domain.OrderIdempotency) (*domain.Order, error) {
+	if record.OrderID != nil {
+		order, err := orderRepo.FindByID(*record.OrderID)
+		if err != nil {
+			return nil, err
+		}
+		return order, nil
+	}
+	return nil, ErrOrderIdempotencyConflict
+}
+
+func (s *OrderService) createOrderWithRepos(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository, userID int64, idempotencyKey string, shippingAddress, billingAddress, notes string, paymentMethod string, inTransaction bool) (order *domain.Order, err error) {
 	var idempotencyRecord *domain.OrderIdempotency
 	if idempotencyKey != "" {
 		if idempotencyRepo == nil {
@@ -59,27 +70,11 @@ func (s *OrderService) createOrderWithRepos(orderRepo repository.OrderRepository
 		}
 		record, err := idempotencyRepo.FindByUserIDAndIdempotencyKey(userID, idempotencyKey)
 		if err == nil {
-			if record.OrderID != nil {
-				order, err := orderRepo.FindByID(*record.OrderID)
-				if err != nil {
-					return nil, err
-				}
-				return order, nil
-			}
-			return nil, ErrOrderIdempotencyConflict
+			return resolveIdempotencyRecord(orderRepo, record)
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, err
 		}
-		record = &domain.OrderIdempotency{
-			UserID:         userID,
-			IdempotencyKey: idempotencyKey,
-			Status:         "pending",
-		}
-		if err := idempotencyRepo.Create(record); err != nil {
-			return nil, err
-		}
-		idempotencyRecord = record
 	}
 
 	if cartRepo == nil || orderRepo == nil || productRepo == nil || inventoryRepo == nil {
@@ -138,7 +133,36 @@ func (s *OrderService) createOrderWithRepos(orderRepo repository.OrderRepository
 
 	orderNo := fmt.Sprintf("ORD%d%04d", time.Now().Unix(), userID%10000)
 
-	order := &domain.Order{
+	if idempotencyKey != "" {
+		record := &domain.OrderIdempotency{
+			UserID:         userID,
+			IdempotencyKey: idempotencyKey,
+			Status:         "pending",
+		}
+		if err := idempotencyRepo.Create(record); err != nil {
+			recorded, lookupErr := idempotencyRepo.FindByUserIDAndIdempotencyKey(userID, idempotencyKey)
+			if lookupErr == nil {
+				return resolveIdempotencyRecord(orderRepo, recorded)
+			}
+			if errors.Is(lookupErr, gorm.ErrRecordNotFound) {
+				return nil, err
+			}
+			return nil, lookupErr
+		}
+		idempotencyRecord = record
+	}
+
+	finalizedIdempotency := false
+	if idempotencyRecord != nil && !inTransaction {
+		defer func() {
+			if err != nil && !finalizedIdempotency {
+				idempotencyRecord.Status = "failed"
+				_ = idempotencyRepo.Update(idempotencyRecord)
+			}
+		}()
+	}
+
+	order = &domain.Order{
 		OrderNo:         orderNo,
 		UserID:          &userID,
 		Status:          "pending",
@@ -188,6 +212,7 @@ func (s *OrderService) createOrderWithRepos(orderRepo repository.OrderRepository
 		if err := idempotencyRepo.Update(idempotencyRecord); err != nil {
 			return nil, err
 		}
+		finalizedIdempotency = true
 	}
 
 	return order, nil

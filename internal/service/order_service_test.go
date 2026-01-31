@@ -131,6 +131,34 @@ func (f *fakeOrderIdempotencyRepo) Update(record *domain.OrderIdempotency) error
 	return nil
 }
 
+type raceOrderIdempotencyRepo struct {
+	record      *domain.OrderIdempotency
+	createErr   error
+	createCalls int
+	findCalls   int
+}
+
+func (r *raceOrderIdempotencyRepo) Create(record *domain.OrderIdempotency) error {
+	r.createCalls++
+	return r.createErr
+}
+
+func (r *raceOrderIdempotencyRepo) FindByUserIDAndIdempotencyKey(userID int64, key string) (*domain.OrderIdempotency, error) {
+	r.findCalls++
+	if r.findCalls == 1 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if r.record == nil || r.record.UserID != userID || r.record.IdempotencyKey != key {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return r.record, nil
+}
+
+func (r *raceOrderIdempotencyRepo) Update(record *domain.OrderIdempotency) error {
+	r.record = record
+	return nil
+}
+
 type fakeCartRepo struct {
 	cart        *domain.Cart
 	clearedCart int64
@@ -371,6 +399,125 @@ func TestOrderServiceCreateOrderReturnsConflictForPendingIdempotencyKey(t *testi
 	}
 	if orderRepo.createCalled {
 		t.Fatalf("expected no new order creation")
+	}
+}
+
+func TestOrderServiceCreateOrderHandlesIdempotencyCreateCollisionWithExistingOrder(t *testing.T) {
+	orderID := int64(101)
+	existingOrder := &domain.Order{ID: orderID, OrderNo: "ORD-existing"}
+	orderRepo := &fakeIdempotencyOrderRepo{order: existingOrder}
+	productRepo := &fakeProductRepo{products: map[int64]*domain.Product{
+		10: {
+			ID:            10,
+			Name:          "Cat Toy",
+			SKU:           "CAT-TOY-001",
+			StockQuantity: 5,
+		},
+	}}
+	inventoryRepo := &fakeInventoryRepo{}
+	cartRepo := &fakeCartRepo{cart: &domain.Cart{
+		ID:     100,
+		UserID: 1,
+		Items: []domain.CartItem{{
+			ProductID: 10,
+			Quantity:  1,
+			Price:     10,
+		}},
+	}}
+	idempotencyRepo := &raceOrderIdempotencyRepo{
+		record: &domain.OrderIdempotency{
+			UserID:         1,
+			IdempotencyKey: "key-dup",
+			OrderID:        &orderID,
+			Status:         "completed",
+		},
+		createErr: errors.New("duplicate key value violates unique constraint"),
+	}
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, idempotencyRepo)
+
+	order, err := svc.CreateOrder(1, "key-dup", "ship", "bill", "", "card")
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	if order == nil || order.ID != orderID {
+		t.Fatalf("expected existing order to be returned")
+	}
+	if orderRepo.createCalled {
+		t.Fatalf("expected no new order creation")
+	}
+}
+
+func TestOrderServiceCreateOrderHandlesIdempotencyCreateCollisionWithPendingRecord(t *testing.T) {
+	orderRepo := &fakeIdempotencyOrderRepo{}
+	productRepo := &fakeProductRepo{products: map[int64]*domain.Product{
+		20: {
+			ID:            20,
+			Name:          "Cat Treats",
+			SKU:           "TREATS-001",
+			StockQuantity: 5,
+		},
+	}}
+	inventoryRepo := &fakeInventoryRepo{}
+	cartRepo := &fakeCartRepo{cart: &domain.Cart{
+		ID:     200,
+		UserID: 2,
+		Items: []domain.CartItem{{
+			ProductID: 20,
+			Quantity:  1,
+			Price:     12,
+		}},
+	}}
+	idempotencyRepo := &raceOrderIdempotencyRepo{
+		record: &domain.OrderIdempotency{
+			UserID:         2,
+			IdempotencyKey: "key-dup-pending",
+			Status:         "pending",
+		},
+		createErr: errors.New("duplicate key value violates unique constraint"),
+	}
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, idempotencyRepo)
+
+	_, err := svc.CreateOrder(2, "key-dup-pending", "ship", "bill", "", "card")
+	if !errors.Is(err, ErrOrderIdempotencyConflict) {
+		t.Fatalf("expected idempotency conflict error")
+	}
+	if orderRepo.createCalled {
+		t.Fatalf("expected no new order creation")
+	}
+}
+
+func TestOrderServiceCreateOrderMarksIdempotencyFailedOnNonTransactionError(t *testing.T) {
+	orderRepo := &fakeOrderCreateRepo{createErr: errors.New("order create failed")}
+	productRepo := &fakeProductRepo{products: map[int64]*domain.Product{
+		10: {
+			ID:            10,
+			Name:          "Cat Toy",
+			SKU:           "CAT-TOY-001",
+			StockQuantity: 5,
+		},
+	}}
+	inventoryRepo := &fakeInventoryRepo{}
+	cartRepo := &fakeCartRepo{cart: &domain.Cart{
+		ID:     100,
+		UserID: 1,
+		Items: []domain.CartItem{{
+			ProductID: 10,
+			Quantity:  1,
+			Price:     10,
+		}},
+	}}
+	idempotencyRepo := &fakeOrderIdempotencyRepo{}
+	svc := NewOrderService(orderRepo, cartRepo, productRepo, inventoryRepo, idempotencyRepo)
+
+	_, err := svc.CreateOrder(1, "key-fail", "ship", "bill", "", "card")
+	if err == nil {
+		t.Fatalf("expected order create error")
+	}
+	if idempotencyRepo.updateCall != 1 {
+		t.Fatalf("expected idempotency record to be marked failed")
+	}
+	if idempotencyRepo.record == nil || idempotencyRepo.record.Status != "failed" {
+		t.Fatalf("expected idempotency record status to be failed")
 	}
 }
 
