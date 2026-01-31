@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -420,64 +421,8 @@ func TestCheckoutCreateUsesConfiguredLinksAndContinueURLBase(t *testing.T) {
 	if len(created.Links) != 2 {
 		t.Fatalf("expected configured links to be used")
 	}
-	if created.ContinueURL == "" || created.ContinueURL[:len(config.ContinueURLBase)] != config.ContinueURLBase {
+	if created.ContinueURL == "" || !strings.HasPrefix(created.ContinueURL, config.ContinueURLBase) {
 		t.Fatalf("expected continue_url to use configured base")
-	}
-}
-
-func TestCheckoutCreateRequiresEscalationWhenNoPaymentHandlers(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	checkoutRepo := newFakeCheckoutRepo()
-	checkoutService := service.NewCheckoutSessionService(checkoutRepo)
-	services := &service.Services{Checkout: checkoutService}
-
-	handler := NewCheckoutHandler(services)
-
-	r := gin.New()
-	r.POST("/ucp/v1/checkout-sessions", handler.Create)
-
-	createBody := model.CheckoutCreateRequest{
-		Currency: "CNY",
-		LineItems: []model.LineItem{
-			{
-				Item: model.Item{
-					ID:    "sku_1",
-					Title: "Test Item",
-					Price: 19900,
-				},
-				Quantity: 1,
-			},
-		},
-	}
-
-	payload, err := json.Marshal(createBody)
-	if err != nil {
-		t.Fatalf("marshal request: %v", err)
-	}
-
-	createReq := httptest.NewRequest(http.MethodPost, "/ucp/v1/checkout-sessions", bytes.NewReader(payload))
-	createReq.Header.Set("Content-Type", "application/json")
-	createResp := httptest.NewRecorder()
-	r.ServeHTTP(createResp, createReq)
-
-	if createResp.Code != http.StatusCreated {
-		t.Fatalf("expected status 201, got %d", createResp.Code)
-	}
-
-	var created model.CheckoutSession
-	if err := json.Unmarshal(createResp.Body.Bytes(), &created); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-
-	if created.Status != "requires_escalation" {
-		t.Fatalf("expected status requires_escalation, got %s", created.Status)
-	}
-	if len(created.Messages) == 0 {
-		t.Fatalf("expected messages to be set")
-	}
-	if created.Messages[0].Severity != "requires_buyer_input" {
-		t.Fatalf("expected requires_buyer_input severity")
 	}
 }
 
@@ -532,16 +477,19 @@ func TestCheckoutCreateRequiresEscalationWhenNoHandlers(t *testing.T) {
 	if created.ContinueURL == "" {
 		t.Fatalf("expected continue_url to be set")
 	}
+	if len(created.Messages) == 0 {
+		t.Fatalf("expected messages to be set")
+	}
 
 	found := false
 	for _, message := range created.Messages {
-		if message.Code == "payment_handlers_missing" && message.Severity == "requires_buyer_input" {
+		if message.Code == "payment_required" && message.Severity == "requires_buyer_input" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected payment_handlers_missing requires_buyer_input message")
+		t.Fatalf("expected payment_required requires_buyer_input message")
 	}
 }
 
