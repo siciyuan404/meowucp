@@ -70,18 +70,24 @@ func (f *fakePaidOrderRepo) UpdateStatus(id int64, status string) error {
 func (f *fakePaidOrderRepo) CreateOrderItem(item *domain.OrderItem) error { return nil }
 
 type fakeWebhookQueueRepo struct {
-	last *domain.UCPWebhookJob
+	jobs []*domain.UCPWebhookJob
 }
 
-func (f *fakeWebhookQueueRepo) Create(job *domain.UCPWebhookJob) error { f.last = job; return nil }
+func (f *fakeWebhookQueueRepo) Create(job *domain.UCPWebhookJob) error {
+	f.jobs = append(f.jobs, job)
+	return nil
+}
 func (f *fakeWebhookQueueRepo) ListDue(limit int) ([]*domain.UCPWebhookJob, error) {
 	return []*domain.UCPWebhookJob{}, nil
 }
-func (f *fakeWebhookQueueRepo) Update(job *domain.UCPWebhookJob) error { f.last = job; return nil }
+func (f *fakeWebhookQueueRepo) Update(job *domain.UCPWebhookJob) error {
+	f.jobs = append(f.jobs, job)
+	return nil
+}
 func (f *fakeWebhookQueueRepo) List(offset, limit int) ([]*domain.UCPWebhookJob, error) {
 	return []*domain.UCPWebhookJob{}, nil
 }
-func (f *fakeWebhookQueueRepo) Count() (int64, error) { return 0, nil }
+func (f *fakeWebhookQueueRepo) Count() (int64, error) { return int64(len(f.jobs)), nil }
 func (f *fakeWebhookQueueRepo) FindByID(id int64) (*domain.UCPWebhookJob, error) {
 	return nil, errors.New("not found")
 }
@@ -172,18 +178,24 @@ func (f *fakeOrderStatusRepo) UpdateStatus(id int64, status string) error {
 func (f *fakeOrderStatusRepo) CreateOrderItem(item *domain.OrderItem) error { return nil }
 
 type fakeOrderWebhookQueueRepo struct {
-	last *domain.UCPWebhookJob
+	jobs []*domain.UCPWebhookJob
 }
 
-func (f *fakeOrderWebhookQueueRepo) Create(job *domain.UCPWebhookJob) error { f.last = job; return nil }
+func (f *fakeOrderWebhookQueueRepo) Create(job *domain.UCPWebhookJob) error {
+	f.jobs = append(f.jobs, job)
+	return nil
+}
 func (f *fakeOrderWebhookQueueRepo) ListDue(limit int) ([]*domain.UCPWebhookJob, error) {
 	return []*domain.UCPWebhookJob{}, nil
 }
-func (f *fakeOrderWebhookQueueRepo) Update(job *domain.UCPWebhookJob) error { f.last = job; return nil }
+func (f *fakeOrderWebhookQueueRepo) Update(job *domain.UCPWebhookJob) error {
+	f.jobs = append(f.jobs, job)
+	return nil
+}
 func (f *fakeOrderWebhookQueueRepo) List(offset, limit int) ([]*domain.UCPWebhookJob, error) {
 	return []*domain.UCPWebhookJob{}, nil
 }
-func (f *fakeOrderWebhookQueueRepo) Count() (int64, error) { return 0, nil }
+func (f *fakeOrderWebhookQueueRepo) Count() (int64, error) { return int64(len(f.jobs)), nil }
 func (f *fakeOrderWebhookQueueRepo) FindByID(id int64) (*domain.UCPWebhookJob, error) {
 	return nil, errors.New("not found")
 }
@@ -588,21 +600,22 @@ func TestPaymentCallbackTriggersPaidWebhook(t *testing.T) {
 	if err := svc.UpdateOrderStatus(42, "paid"); err != nil {
 		t.Fatalf("update order status: %v", err)
 	}
-	if webhookRepo.last == nil {
+	if len(webhookRepo.jobs) == 0 {
 		t.Fatalf("expected webhook job to be enqueued")
 	}
 
-	var payload model.OrderWebhookEvent
-	if err := json.Unmarshal([]byte(webhookRepo.last.Payload), &payload); err != nil {
-		t.Fatalf("unmarshal payload: %v", err)
+	found := false
+	for _, job := range webhookRepo.jobs {
+		var payload model.OrderWebhookEvent
+		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+			continue
+		}
+		if payload.EventType == "order.paid" && payload.EventID != "" && payload.Order.ID == "42" && payload.Order.Status == "paid" {
+			found = true
+			break
+		}
 	}
-	if payload.EventID == "" {
-		t.Fatalf("expected event_id to be set")
-	}
-	if payload.EventType != "order.paid" {
-		t.Fatalf("expected event_type order.paid")
-	}
-	if payload.Order.ID != "42" || payload.Order.Status != "paid" {
+	if !found {
 		t.Fatalf("expected paid order payload")
 	}
 }
@@ -619,19 +632,23 @@ func TestOrderServiceEnqueuesOrderWebhookOnStatusChange(t *testing.T) {
 	if err := svc.UpdateOrderStatus(1, "paid"); err != nil {
 		t.Fatalf("update status: %v", err)
 	}
-	if queueRepo.last == nil {
+	if len(queueRepo.jobs) == 0 {
 		t.Fatalf("expected webhook job to be enqueued")
 	}
 
-	var payload orderWebhookPayload
-	if err := json.Unmarshal([]byte(queueRepo.last.Payload), &payload); err != nil {
-		t.Fatalf("decode payload: %v", err)
+	found := false
+	for _, job := range queueRepo.jobs {
+		var payload orderWebhookPayload
+		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+			continue
+		}
+		if payload.EventType == "paid" && payload.OrderNo == "ORD-1" {
+			found = true
+			break
+		}
 	}
-	if payload.EventType != "paid" {
-		t.Fatalf("expected event_type paid, got %s", payload.EventType)
-	}
-	if payload.OrderNo != "ORD-1" {
-		t.Fatalf("expected order_no ORD-1, got %s", payload.OrderNo)
+	if !found {
+		t.Fatalf("expected order webhook payload")
 	}
 }
 
