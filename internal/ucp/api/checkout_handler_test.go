@@ -481,6 +481,139 @@ func TestCheckoutCreateRequiresEscalationWhenNoPaymentHandlers(t *testing.T) {
 	}
 }
 
+func TestCheckoutCreateRequiresEscalationWhenNoHandlers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	checkoutRepo := newFakeCheckoutRepo()
+	checkoutService := service.NewCheckoutSessionService(checkoutRepo)
+	services := &service.Services{Checkout: checkoutService}
+
+	handler := NewCheckoutHandler(services)
+
+	r := gin.New()
+	r.POST("/ucp/v1/checkout-sessions", handler.Create)
+
+	createBody := model.CheckoutCreateRequest{
+		Currency: "CNY",
+		LineItems: []model.LineItem{
+			{
+				Item: model.Item{
+					ID:    "sku_1",
+					Title: "Test Item",
+					Price: 19900,
+				},
+				Quantity: 1,
+			},
+		},
+	}
+
+	payload, err := json.Marshal(createBody)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	createReq := httptest.NewRequest(http.MethodPost, "/ucp/v1/checkout-sessions", bytes.NewReader(payload))
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp := httptest.NewRecorder()
+	r.ServeHTTP(createResp, createReq)
+
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d", createResp.Code)
+	}
+
+	var created model.CheckoutSession
+	if err := json.Unmarshal(createResp.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if created.Status != "requires_escalation" {
+		t.Fatalf("expected status requires_escalation, got %s", created.Status)
+	}
+	if created.ContinueURL == "" {
+		t.Fatalf("expected continue_url to be set")
+	}
+
+	found := false
+	for _, message := range created.Messages {
+		if message.Code == "payment_handlers_missing" && message.Severity == "requires_buyer_input" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected payment_handlers_missing requires_buyer_input message")
+	}
+}
+
+func TestCheckoutCreateIncompleteOnRecoverableErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	checkoutRepo := newFakeCheckoutRepo()
+	checkoutService := service.NewCheckoutSessionService(checkoutRepo)
+	services := &service.Services{Checkout: checkoutService}
+
+	handler := NewCheckoutHandler(services)
+
+	r := gin.New()
+	r.POST("/ucp/v1/checkout-sessions", handler.Create)
+
+	tests := map[string]model.CheckoutCreateRequest{
+		"missing_currency": {
+			LineItems: []model.LineItem{
+				{
+					Item: model.Item{
+						ID:    "sku_1",
+						Title: "Test Item",
+						Price: 19900,
+					},
+					Quantity: 1,
+				},
+			},
+		},
+		"missing_line_items": {
+			Currency: "CNY",
+		},
+	}
+
+	for name, createBody := range tests {
+		t.Run(name, func(t *testing.T) {
+			payload, err := json.Marshal(createBody)
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+
+			createReq := httptest.NewRequest(http.MethodPost, "/ucp/v1/checkout-sessions", bytes.NewReader(payload))
+			createReq.Header.Set("Content-Type", "application/json")
+			createResp := httptest.NewRecorder()
+			r.ServeHTTP(createResp, createReq)
+
+			if createResp.Code != http.StatusCreated {
+				t.Fatalf("expected status 201, got %d", createResp.Code)
+			}
+
+			var created model.CheckoutSession
+			if err := json.Unmarshal(createResp.Body.Bytes(), &created); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+
+			if created.Status != "incomplete" {
+				t.Fatalf("expected status incomplete, got %s", created.Status)
+			}
+
+			recoverable := false
+			for _, message := range created.Messages {
+				if message.Severity == "recoverable" {
+					recoverable = true
+					break
+				}
+			}
+			if !recoverable {
+				t.Fatalf("expected recoverable message")
+			}
+		})
+	}
+}
+
 func TestCheckoutUpdate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
