@@ -16,6 +16,7 @@ type OrderService struct {
 	productRepo     repository.ProductRepository
 	inventoryRepo   repository.InventoryRepository
 	idempotencyRepo repository.OrderIdempotencyRepository
+	webhookQueue    *WebhookQueueService
 }
 
 func NewOrderService(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository) *OrderService {
@@ -26,6 +27,10 @@ func NewOrderService(orderRepo repository.OrderRepository, cartRepo repository.C
 		inventoryRepo:   inventoryRepo,
 		idempotencyRepo: idempotencyRepo,
 	}
+}
+
+func (s *OrderService) SetWebhookQueue(queue *WebhookQueueService) {
+	s.webhookQueue = queue
 }
 
 type orderTransactionRunner interface {
@@ -241,7 +246,18 @@ func (s *OrderService) ListUserOrders(userID int64, offset, limit int) ([]*domai
 }
 
 func (s *OrderService) UpdateOrderStatus(id int64, status string) error {
-	return s.orderRepo.UpdateStatus(id, status)
+	if err := s.orderRepo.UpdateStatus(id, status); err != nil {
+		return err
+	}
+	if s.webhookQueue == nil {
+		return nil
+	}
+	order, err := s.orderRepo.FindByID(id)
+	if err != nil {
+		return err
+	}
+	order.Status = status
+	return s.webhookQueue.EnqueueOrderEvent(order, status)
 }
 
 func (s *OrderService) ListOrders(offset, limit int, filters map[string]interface{}) ([]*domain.Order, int64, error) {

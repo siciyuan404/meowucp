@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/meowucp/internal/api"
@@ -68,6 +69,10 @@ func main() {
 	ucpVerifier := security.NewJWKVerifier(cfg.UCP.Webhook.JWKSetURL, cfg.UCP.Webhook.ClockSkewSeconds)
 	ucpVerifier.SetSkipVerify(cfg.UCP.Webhook.SkipSignatureVerify)
 	ucpOrderWebhookHandler := ucpapi.NewOrderWebhookHandlerWithVerifier(services, ucpVerifier)
+	adminOrderWebhookHandler := api.NewAdminOrderWebhookHandler(services.Order, services.WebhookQueue, api.AdminOrderWebhookConfig{
+		DeliveryURL: cfg.UCP.Webhook.DeliveryURL,
+		Timeout:     time.Duration(cfg.UCP.Webhook.DeliveryTimeoutSec) * time.Second,
+	})
 
 	apiGroup := r.Group("/api/v1")
 	{
@@ -167,6 +172,9 @@ func main() {
 			})
 			admin.GET("/orders/:id", func(c *gin.Context) {
 				adminOrderHandler.Get(c)
+			})
+			admin.POST("/orders/:id/webhook", func(c *gin.Context) {
+				adminOrderWebhookHandler.Trigger(c)
 			})
 			admin.POST("/orders/:id/ship", func(c *gin.Context) {
 				adminOrderHandler.Ship(c)
