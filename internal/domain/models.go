@@ -270,3 +270,18 @@ type UCPWebhookAlert struct {
 	Attempts  int
 	CreatedAt time.Time
 }
+
+type WebhookDLQ struct {
+	ID        int64 `gorm:"primary_key"`
+	JobID     int64
+	Reason    string
+	Payload   string
+	CreatedAt time.Time
+}
+
+type WebhookReplayLog struct {
+	ID       int64 `gorm:"primary_key"`
+	JobID    int64
+	ReplayAt time.Time
+	Result   string
+}

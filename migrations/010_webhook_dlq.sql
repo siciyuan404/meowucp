@@ -1,0 +1,14 @@
+CREATE TABLE IF NOT EXISTS webhook_dlq (
+  id BIGSERIAL PRIMARY KEY,
+  job_id BIGINT NOT NULL,
+  reason TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS webhook_replay_logs (
+  id BIGSERIAL PRIMARY KEY,
+  job_id BIGINT NOT NULL,
+  replay_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  result TEXT NOT NULL
+);
