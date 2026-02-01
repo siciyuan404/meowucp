@@ -22,6 +22,7 @@ type Services struct {
 	WebhookAudit  *WebhookAuditService
 	WebhookReplay *WebhookReplayService
 	WebhookQueue  *WebhookQueueService
+	WebhookDLQ    *WebhookDLQService
 	WebhookAlert  *WebhookAlertService
 }
 
@@ -32,6 +33,7 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 	orderService.SetShipmentRepo(repos.Shipment)
 	orderService.SetStatusLogRepo(repos.OrderStatusLog)
 	paymentService := NewPaymentServiceWithDeps(repos.Payment, repos.Order, repos.PaymentRefund, repos.PaymentEvent)
+	webhookDLQ := NewWebhookDLQService(webhookQueue, repos.WebhookDLQ)
 
 	return &Services{
 		User:          NewUserService(repos.User),
@@ -48,6 +50,7 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 		WebhookAudit:  NewWebhookAuditService(repos.WebhookAudit),
 		WebhookReplay: NewWebhookReplayService(repos.WebhookReplay),
 		WebhookQueue:  webhookQueue,
+		WebhookDLQ:    webhookDLQ,
 		WebhookAlert:  NewWebhookAlertService(repos.WebhookAlert, repos.Webhook),
 	}
 }

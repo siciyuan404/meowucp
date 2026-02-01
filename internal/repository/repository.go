@@ -168,6 +168,9 @@ type UCPWebhookAlertRepository interface {
 
 type WebhookDLQRepository interface {
 	Create(item *domain.WebhookDLQ) error
+	FindByID(id int64) (*domain.WebhookDLQ, error)
+	List(offset, limit int) ([]*domain.WebhookDLQ, error)
+	Count() (int64, error)
 }
 
 type WebhookReplayLogRepository interface {

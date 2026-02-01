@@ -79,6 +79,7 @@ func main() {
 		DeliveryURL: cfg.UCP.Webhook.DeliveryURL,
 		Timeout:     time.Duration(cfg.UCP.Webhook.DeliveryTimeoutSec) * time.Second,
 	})
+	adminWebhookDLQHandler := api.NewAdminWebhookDLQHandler(services.WebhookDLQ)
 
 	apiGroup := r.Group("/api/v1")
 	{
@@ -199,6 +200,12 @@ func main() {
 			})
 			admin.POST("/orders/:id/refund", func(c *gin.Context) {
 				adminOrderHandler.Refund(c)
+			})
+			admin.POST("/webhooks/dlq/:id/replay", func(c *gin.Context) {
+				adminWebhookDLQHandler.Replay(c)
+			})
+			admin.GET("/webhooks/dlq", func(c *gin.Context) {
+				adminWebhookDLQHandler.List(c)
 			})
 
 			adminPaymentHandler := api.NewAdminPaymentHandler(services.Payment)
