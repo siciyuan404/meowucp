@@ -9,7 +9,8 @@ import (
 )
 
 type fakeWebhookAlertRepo struct {
-	items []*domain.UCPWebhookAlert
+	items  []*domain.UCPWebhookAlert
+	recent bool
 }
 
 func (f *fakeWebhookAlertRepo) Create(alert *domain.UCPWebhookAlert) error {
@@ -33,7 +34,7 @@ func (f *fakeWebhookAlertRepo) Count() (int64, error) {
 }
 
 func (f *fakeWebhookAlertRepo) ExistsRecent(eventID, reason string, window time.Duration) (bool, error) {
-	return false, nil
+	return f.recent, nil
 }
 
 type fakeWebhookEventRepo struct {
@@ -94,5 +95,29 @@ func TestWebhookAlertIncludesEventContext(t *testing.T) {
 	}
 	if details["order_id"] != "ord_1" {
 		t.Fatalf("expected order_id in details")
+	}
+}
+
+func TestWebhookAlertDedupWithinWindow(t *testing.T) {
+	repo := &fakeWebhookAlertRepo{items: []*domain.UCPWebhookAlert{}}
+	repoWithDedup := &fakeWebhookAlertRepo{items: []*domain.UCPWebhookAlert{}, recent: true}
+
+	service := NewWebhookAlertService(repo, nil)
+	serviceWithDedup := NewWebhookAlertService(repoWithDedup, nil)
+
+	alert := &domain.UCPWebhookAlert{EventID: "evt_1", Reason: "delivery_failed"}
+	if err := service.CreateDedup(alert, time.Minute); err != nil {
+		t.Fatalf("create dedup: %v", err)
+	}
+	if len(repo.items) != 1 {
+		t.Fatalf("expected alert to be created")
+	}
+
+	repoWithDedup.items = []*domain.UCPWebhookAlert{{EventID: "evt_1", Reason: "delivery_failed"}}
+	if err := serviceWithDedup.CreateDedup(alert, time.Minute); err != nil {
+		t.Fatalf("create dedup: %v", err)
+	}
+	if len(repoWithDedup.items) != 1 {
+		t.Fatalf("expected dedup to skip creation")
 	}
 }

@@ -50,11 +50,37 @@ func (f *fakeQueueRepo) FindByID(id int64) (*domain.UCPWebhookJob, error) {
 
 type fakeWebhookDLQRepo struct {
 	created *domain.WebhookDLQ
+	items   []*domain.WebhookDLQ
 }
 
 func (f *fakeWebhookDLQRepo) Create(item *domain.WebhookDLQ) error {
 	f.created = item
+	f.items = append(f.items, item)
 	return nil
+}
+
+func (f *fakeWebhookDLQRepo) FindByID(id int64) (*domain.WebhookDLQ, error) {
+	for _, item := range f.items {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+
+func (f *fakeWebhookDLQRepo) List(offset, limit int) ([]*domain.WebhookDLQ, error) {
+	if offset >= len(f.items) {
+		return []*domain.WebhookDLQ{}, nil
+	}
+	end := offset + limit
+	if end > len(f.items) {
+		end = len(f.items)
+	}
+	return f.items[offset:end], nil
+}
+
+func (f *fakeWebhookDLQRepo) Count() (int64, error) {
+	return int64(len(f.items)), nil
 }
 
 type fakeWebhookReplayLogRepo struct {
