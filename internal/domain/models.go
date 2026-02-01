@@ -145,6 +145,25 @@ type Payment struct {
 	UpdatedAt      time.Time
 }
 
+type PaymentRefund struct {
+	ID          int64 `gorm:"primary_key"`
+	PaymentID   int64 `gorm:"not null"`
+	Amount      float64
+	Status      string
+	Reason      string
+	ExternalRef *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type PaymentEvent struct {
+	ID        int64 `gorm:"primary_key"`
+	PaymentID int64 `gorm:"not null"`
+	EventType string
+	Payload   *string
+	CreatedAt time.Time
+}
+
 type InventoryLog struct {
 	ID             int64  `gorm:"primary_key"`
 	ProductID      int64  `gorm:"index;not null"`
