@@ -49,6 +49,21 @@ func (p *Processor) SetAlertSink(sink AlertSink) {
 	p.alertSink = sink
 }
 
+func (p *Processor) EnqueueFollowup(subject string, action string) error {
+	if p == nil || p.store == nil {
+		return nil
+	}
+	job := &domain.UCPWebhookJob{
+		EventID:     subject,
+		Payload:     action,
+		Status:      "queued",
+		Attempts:    0,
+		NextRetryAt: p.now(),
+		CreatedAt:   p.now(),
+	}
+	return p.store.Update(job)
+}
+
 func (p *Processor) ProcessOnce(handler func(job *domain.UCPWebhookJob) error) (int, error) {
 	jobs, err := p.store.ListDue(p.config.BatchSize)
 	if err != nil {
