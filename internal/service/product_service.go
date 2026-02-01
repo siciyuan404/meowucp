@@ -15,6 +15,7 @@ type ProductService struct {
 	productRepo   repository.ProductRepository
 	inventoryRepo repository.InventoryRepository
 	redis         *redis.Client
+	cache         ProductListCache
 }
 
 func NewProductService(productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, redis *redis.Client) *ProductService {
@@ -22,6 +23,19 @@ func NewProductService(productRepo repository.ProductRepository, inventoryRepo r
 		productRepo:   productRepo,
 		inventoryRepo: inventoryRepo,
 		redis:         redis,
+	}
+}
+
+type ProductListCache interface {
+	Get(key string) (string, bool)
+	Set(key, value string)
+}
+
+func NewProductServiceWithCache(productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, cache ProductListCache) *ProductService {
+	return &ProductService{
+		productRepo:   productRepo,
+		inventoryRepo: inventoryRepo,
+		cache:         cache,
 	}
 }
 
@@ -74,6 +88,15 @@ func (s *ProductService) DeleteProduct(id int64) error {
 }
 
 func (s *ProductService) ListProducts(offset, limit int, filters map[string]interface{}) ([]*domain.Product, int64, error) {
+	if s.cache != nil {
+		cacheKey := buildProductListCacheKey(offset, limit, filters)
+		if cached, ok := s.cache.Get(cacheKey); ok {
+			var payload productListCachePayload
+			if err := json.Unmarshal([]byte(cached), &payload); err == nil {
+				return payload.Items, payload.Total, nil
+			}
+		}
+	}
 	products, err := s.productRepo.List(offset, limit, filters)
 	if err != nil {
 		return nil, 0, err
@@ -84,7 +107,25 @@ func (s *ProductService) ListProducts(offset, limit int, filters map[string]inte
 		return nil, 0, err
 	}
 
+	if s.cache != nil {
+		cacheKey := buildProductListCacheKey(offset, limit, filters)
+		payload := productListCachePayload{Items: products, Total: count}
+		if data, err := json.Marshal(payload); err == nil {
+			s.cache.Set(cacheKey, string(data))
+		}
+	}
+
 	return products, count, nil
+}
+
+type productListCachePayload struct {
+	Items []*domain.Product `json:"items"`
+	Total int64             `json:"total"`
+}
+
+func buildProductListCacheKey(offset, limit int, filters map[string]interface{}) string {
+	filterData, _ := json.Marshal(filters)
+	return fmt.Sprintf("products:list:%d:%d:%s", offset, limit, string(filterData))
 }
 
 func (s *ProductService) SearchProducts(query string, offset, limit int) ([]*domain.Product, int64, error) {
