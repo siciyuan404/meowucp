@@ -73,8 +73,9 @@ func main() {
 	paymentCallbackHandler := api.NewPaymentCallbackHandler(services.Payment, services.Order)
 	paymentRefundHandler := api.NewPaymentRefundHandler(services.Payment)
 	oauthMetadataHandler := api.NewOAuthMetadataHandler()
-	oauthTokenHandler := api.NewOAuthTokenHandler()
+	oauthTokenHandler := api.NewOAuthTokenHandlerWithRepos(services.OAuthClientRepo, services.OAuthTokenRepo)
 	oauthAuthorizeHandler := api.NewOAuthAuthorizeHandler()
+	oauthRevokeHandler := api.NewOAuthRevokeHandler(services.OAuthToken)
 	adminOrderWebhookHandler := api.NewAdminOrderWebhookHandler(services.Order, services.WebhookQueue, api.AdminOrderWebhookConfig{
 		DeliveryURL: cfg.UCP.Webhook.DeliveryURL,
 		Timeout:     time.Duration(cfg.UCP.Webhook.DeliveryTimeoutSec) * time.Second,
@@ -230,6 +231,9 @@ func main() {
 	})
 	r.POST("/oauth2/token", func(c *gin.Context) {
 		oauthTokenHandler.Token(c)
+	})
+	r.POST("/oauth2/revoke", func(c *gin.Context) {
+		oauthRevokeHandler.Revoke(c)
 	})
 	r.GET("/oauth2/authorize", func(c *gin.Context) {
 		oauthAuthorizeHandler.Authorize(c)

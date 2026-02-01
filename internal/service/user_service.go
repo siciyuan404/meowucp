@@ -8,23 +8,26 @@ import (
 )
 
 type Services struct {
-	User          *UserService
-	Product       *ProductService
-	Category      *CategoryService
-	Cart          *CartService
-	Order         *OrderService
-	Payment       *PaymentService
-	Inventory     *InventoryService
-	Checkout      *CheckoutSessionService
-	Handler       *PaymentHandlerService
-	Webhook       *WebhookEventService
-	UCPOrder      *UCPOrderService
-	WebhookAudit  *WebhookAuditService
-	WebhookReplay *WebhookReplayService
-	WebhookQueue  *WebhookQueueService
-	WebhookDLQ    *WebhookDLQService
-	WebhookAlert  *WebhookAlertService
-	OAuthClient   *OAuthClientService
+	User            *UserService
+	Product         *ProductService
+	Category        *CategoryService
+	Cart            *CartService
+	Order           *OrderService
+	Payment         *PaymentService
+	Inventory       *InventoryService
+	Checkout        *CheckoutSessionService
+	Handler         *PaymentHandlerService
+	Webhook         *WebhookEventService
+	UCPOrder        *UCPOrderService
+	WebhookAudit    *WebhookAuditService
+	WebhookReplay   *WebhookReplayService
+	WebhookQueue    *WebhookQueueService
+	WebhookDLQ      *WebhookDLQService
+	WebhookAlert    *WebhookAlertService
+	OAuthClient     *OAuthClientService
+	OAuthToken      *OAuthTokenService
+	OAuthClientRepo repository.OAuthClientRepository
+	OAuthTokenRepo  repository.OAuthTokenRepository
 }
 
 func NewServices(repos *repository.Repositories, redis *redis.Client) *Services {
@@ -36,25 +39,29 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 	paymentService := NewPaymentServiceWithDeps(repos.Payment, repos.Order, repos.PaymentRefund, repos.PaymentEvent)
 	webhookDLQ := NewWebhookDLQService(webhookQueue, repos.WebhookDLQ)
 	oauthClient := NewOAuthClientService(repos.OAuthClient)
+	oauthToken := NewOAuthTokenService(repos.OAuthClient, repos.OAuthToken)
 
 	return &Services{
-		User:          NewUserService(repos.User),
-		Product:       NewProductService(repos.Product, repos.Inventory, redis),
-		Category:      NewCategoryService(repos.Category),
-		Cart:          NewCartService(repos.Cart, repos.Product),
-		Order:         orderService,
-		Payment:       paymentService,
-		Inventory:     NewInventoryService(repos.Product, repos.Inventory),
-		Checkout:      NewCheckoutSessionService(repos.Checkout),
-		Handler:       NewPaymentHandlerService(repos.Handler),
-		Webhook:       NewWebhookEventService(repos.Webhook),
-		UCPOrder:      NewUCPOrderService(repos.Order, repos.Payment),
-		WebhookAudit:  NewWebhookAuditService(repos.WebhookAudit),
-		WebhookReplay: NewWebhookReplayService(repos.WebhookReplay),
-		WebhookQueue:  webhookQueue,
-		WebhookDLQ:    webhookDLQ,
-		WebhookAlert:  NewWebhookAlertService(repos.WebhookAlert, repos.Webhook),
-		OAuthClient:   oauthClient,
+		User:            NewUserService(repos.User),
+		Product:         NewProductService(repos.Product, repos.Inventory, redis),
+		Category:        NewCategoryService(repos.Category),
+		Cart:            NewCartService(repos.Cart, repos.Product),
+		Order:           orderService,
+		Payment:         paymentService,
+		Inventory:       NewInventoryService(repos.Product, repos.Inventory),
+		Checkout:        NewCheckoutSessionService(repos.Checkout),
+		Handler:         NewPaymentHandlerService(repos.Handler),
+		Webhook:         NewWebhookEventService(repos.Webhook),
+		UCPOrder:        NewUCPOrderService(repos.Order, repos.Payment),
+		WebhookAudit:    NewWebhookAuditService(repos.WebhookAudit),
+		WebhookReplay:   NewWebhookReplayService(repos.WebhookReplay),
+		WebhookQueue:    webhookQueue,
+		WebhookDLQ:      webhookDLQ,
+		WebhookAlert:    NewWebhookAlertService(repos.WebhookAlert, repos.Webhook),
+		OAuthClient:     oauthClient,
+		OAuthToken:      oauthToken,
+		OAuthClientRepo: repos.OAuthClient,
+		OAuthTokenRepo:  repos.OAuthToken,
 	}
 }
 

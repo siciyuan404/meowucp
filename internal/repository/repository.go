@@ -134,6 +134,7 @@ type PaymentHandlerRepository interface {
 
 type OAuthClientRepository interface {
 	Create(client *domain.OAuthClient) error
+	FindByClientID(clientID string) (*domain.OAuthClient, error)
 	List(offset, limit int) ([]*domain.OAuthClient, error)
 	Count() (int64, error)
 }
