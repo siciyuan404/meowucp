@@ -191,6 +191,9 @@ func main() {
 			admin.POST("/orders/:id/ship", func(c *gin.Context) {
 				adminOrderHandler.Ship(c)
 			})
+			admin.POST("/orders/:id/receive", func(c *gin.Context) {
+				adminOrderHandler.Receive(c)
+			})
 			admin.POST("/orders/:id/cancel", func(c *gin.Context) {
 				adminOrderHandler.Cancel(c)
 			})
