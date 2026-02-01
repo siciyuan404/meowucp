@@ -357,3 +357,18 @@ type DataRetentionPolicy struct {
 	TTLDays  int
 	Strategy string
 }
+
+type CurrencyRate struct {
+	ID        int64 `gorm:"primary_key"`
+	Base      string
+	Target    string
+	Rate      float64
+	UpdatedAt time.Time
+}
+
+type I18nString struct {
+	ID     int64 `gorm:"primary_key"`
+	Key    string
+	Locale string
+	Value  string
+}
