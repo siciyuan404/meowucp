@@ -93,6 +93,14 @@ type PaymentRepository interface {
 	Count(filters map[string]interface{}) (int64, error)
 }
 
+type PaymentRefundRepository interface {
+	Create(refund *domain.PaymentRefund) error
+}
+
+type PaymentEventRepository interface {
+	Create(event *domain.PaymentEvent) error
+}
+
 type InventoryRepository interface {
 	Create(log *domain.InventoryLog) error
 	FindByProductID(productID int64, offset, limit int) ([]*domain.InventoryLog, error)
@@ -157,6 +165,8 @@ type Repositories struct {
 	OrderIdempotency OrderIdempotencyRepository
 	IdempotencyKey   IdempotencyKeyRepository
 	Payment          PaymentRepository
+	PaymentRefund    PaymentRefundRepository
+	PaymentEvent     PaymentEventRepository
 	Inventory        InventoryRepository
 	Checkout         CheckoutSessionRepository
 	Handler          PaymentHandlerRepository
@@ -177,6 +187,8 @@ func NewRepositories(db *database.DB) *Repositories {
 		OrderIdempotency: NewOrderIdempotencyRepository(db),
 		IdempotencyKey:   NewIdempotencyKeyRepository(db),
 		Payment:          NewPaymentRepository(db),
+		PaymentRefund:    NewPaymentRefundRepository(db),
+		PaymentEvent:     NewPaymentEventRepository(db),
 		Inventory:        NewInventoryRepository(db),
 		Checkout:         NewCheckoutSessionRepository(db),
 		Handler:          NewPaymentHandlerRepository(db),
