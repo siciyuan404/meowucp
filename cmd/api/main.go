@@ -68,6 +68,7 @@ func main() {
 	})
 	ucpVerifier := security.NewJWKVerifier(cfg.UCP.Webhook.JWKSetURL, cfg.UCP.Webhook.ClockSkewSeconds)
 	ucpVerifier.SetSkipVerify(cfg.UCP.Webhook.SkipSignatureVerify)
+	ucpVerifier.SetNonceStore(ucpapi.NewWebhookReplayNonceStore(services.WebhookReplay))
 	ucpOrderWebhookHandler := ucpapi.NewOrderWebhookHandlerWithVerifier(services, ucpVerifier)
 	paymentCallbackHandler := api.NewPaymentCallbackHandler(services.Payment, services.Order)
 	oauthMetadataHandler := api.NewOAuthMetadataHandler()

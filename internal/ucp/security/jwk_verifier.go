@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +31,7 @@ type JWKVerifier struct {
 	keys       map[string]*ecdsa.PublicKey
 	fetchedAt  time.Time
 	skipVerify bool
+	nonceStore NonceStore
 }
 
 type JWKSet struct {
@@ -57,6 +59,15 @@ func NewJWKVerifier(jwkSetURL string, clockSkewSeconds int) *JWKVerifier {
 
 func (v *JWKVerifier) SetSkipVerify(skip bool) {
 	v.skipVerify = skip
+}
+
+type NonceStore interface {
+	Seen(nonce string) (bool, error)
+	Mark(nonce string) error
+}
+
+func (v *JWKVerifier) SetNonceStore(store NonceStore) {
+	v.nonceStore = store
 }
 
 func (v *JWKVerifier) Verify(r *http.Request, body []byte) error {
@@ -92,6 +103,20 @@ func (v *JWKVerifier) Verify(r *http.Request, body []byte) error {
 	hash := sha256.Sum256(msg)
 	if !ecdsa.VerifyASN1(pubKey, hash[:], signature) {
 		return errors.New("invalid_signature")
+	}
+
+	if v.nonceStore != nil {
+		nonce := buildNonce(r.Header.Get(signatureHeader), kid)
+		seen, err := v.nonceStore.Seen(nonce)
+		if err != nil {
+			return err
+		}
+		if seen {
+			return errors.New("replay_detected")
+		}
+		if err := v.nonceStore.Mark(nonce); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -218,4 +243,10 @@ func parseSignatureHeader(header string) (time.Time, []byte, error) {
 	}
 
 	return time.Unix(unix, 0), signature, nil
+}
+
+func buildNonce(signatureHeaderValue string, keyID string) string {
+	seed := signatureHeaderValue + ":" + keyID
+	digest := sha256.Sum256([]byte(seed))
+	return hex.EncodeToString(digest[:])
 }
