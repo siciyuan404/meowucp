@@ -132,6 +132,18 @@ type PaymentHandlerRepository interface {
 	List() ([]*domain.PaymentHandler, error)
 }
 
+type OAuthClientRepository interface {
+	Create(client *domain.OAuthClient) error
+	List(offset, limit int) ([]*domain.OAuthClient, error)
+	Count() (int64, error)
+}
+
+type OAuthTokenRepository interface {
+	Create(token *domain.OAuthToken) error
+	FindByToken(token string) (*domain.OAuthToken, error)
+	Revoke(token string, revokedAt time.Time) error
+}
+
 type UCPWebhookEventRepository interface {
 	Create(event *domain.UCPWebhookEvent) error
 	FindByEventID(eventID string) (*domain.UCPWebhookEvent, error)
@@ -193,6 +205,8 @@ type Repositories struct {
 	Inventory        InventoryRepository
 	Checkout         CheckoutSessionRepository
 	Handler          PaymentHandlerRepository
+	OAuthClient      OAuthClientRepository
+	OAuthToken       OAuthTokenRepository
 	Webhook          UCPWebhookEventRepository
 	WebhookAudit     UCPWebhookAuditRepository
 	WebhookReplay    UCPWebhookReplayRepository
@@ -219,6 +233,8 @@ func NewRepositories(db *database.DB) *Repositories {
 		Inventory:        NewInventoryRepository(db),
 		Checkout:         NewCheckoutSessionRepository(db),
 		Handler:          NewPaymentHandlerRepository(db),
+		OAuthClient:      NewOAuthClientRepository(db),
+		OAuthToken:       NewOAuthTokenRepository(db),
 		Webhook:          NewUCPWebhookEventRepository(db),
 		WebhookAudit:     NewUCPWebhookAuditRepository(db),
 		WebhookReplay:    NewUCPWebhookReplayRepository(db),

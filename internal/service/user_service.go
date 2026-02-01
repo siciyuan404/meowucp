@@ -24,6 +24,7 @@ type Services struct {
 	WebhookQueue  *WebhookQueueService
 	WebhookDLQ    *WebhookDLQService
 	WebhookAlert  *WebhookAlertService
+	OAuthClient   *OAuthClientService
 }
 
 func NewServices(repos *repository.Repositories, redis *redis.Client) *Services {
@@ -34,6 +35,7 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 	orderService.SetStatusLogRepo(repos.OrderStatusLog)
 	paymentService := NewPaymentServiceWithDeps(repos.Payment, repos.Order, repos.PaymentRefund, repos.PaymentEvent)
 	webhookDLQ := NewWebhookDLQService(webhookQueue, repos.WebhookDLQ)
+	oauthClient := NewOAuthClientService(repos.OAuthClient)
 
 	return &Services{
 		User:          NewUserService(repos.User),
@@ -52,6 +54,7 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 		WebhookQueue:  webhookQueue,
 		WebhookDLQ:    webhookDLQ,
 		WebhookAlert:  NewWebhookAlertService(repos.WebhookAlert, repos.Webhook),
+		OAuthClient:   oauthClient,
 	}
 }
 

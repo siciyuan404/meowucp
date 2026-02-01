@@ -80,6 +80,7 @@ func main() {
 		Timeout:     time.Duration(cfg.UCP.Webhook.DeliveryTimeoutSec) * time.Second,
 	})
 	adminWebhookDLQHandler := api.NewAdminWebhookDLQHandler(services.WebhookDLQ)
+	adminOAuthClientHandler := api.NewAdminOAuthClientHandler(services.OAuthClient)
 
 	apiGroup := r.Group("/api/v1")
 	{
@@ -206,6 +207,12 @@ func main() {
 			})
 			admin.GET("/webhooks/dlq", func(c *gin.Context) {
 				adminWebhookDLQHandler.List(c)
+			})
+			admin.POST("/oauth/clients", func(c *gin.Context) {
+				adminOAuthClientHandler.Create(c)
+			})
+			admin.GET("/oauth/clients", func(c *gin.Context) {
+				adminOAuthClientHandler.List(c)
 			})
 
 			adminPaymentHandler := api.NewAdminPaymentHandler(services.Payment)
