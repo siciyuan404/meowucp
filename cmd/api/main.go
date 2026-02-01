@@ -86,6 +86,7 @@ func main() {
 	shippingRateHandler := api.NewShippingRateHandler(services.Checkout)
 	addressValidationHandler := api.NewAddressValidationHandler()
 	couponHandler := api.NewCouponHandler(services.Promotion)
+	metricsHandler := api.NewMetricsHandler(cfg.Server.MetricsToken)
 
 	apiGroup := r.Group("/api/v1")
 	{
@@ -241,6 +242,9 @@ func main() {
 	})
 	r.GET("/.well-known/oauth-authorization-server", func(c *gin.Context) {
 		oauthMetadataHandler.WellKnown(c)
+	})
+	r.GET("/metrics", func(c *gin.Context) {
+		metricsHandler.Serve(c)
 	})
 	r.POST("/oauth2/token", func(c *gin.Context) {
 		oauthTokenHandler.Token(c)

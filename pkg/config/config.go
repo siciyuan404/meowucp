@@ -18,8 +18,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port int
-	Mode string
+	Port         int
+	Mode         string
+	MetricsToken string `mapstructure:"metrics_token"`
 }
 
 type DatabaseConfig struct {
