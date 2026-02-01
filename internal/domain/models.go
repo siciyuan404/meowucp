@@ -341,3 +341,12 @@ type Promotion struct {
 	EndsAt   time.Time
 	Status   string
 }
+
+type AuditLog struct {
+	ID        int64 `gorm:"primary_key"`
+	Actor     string
+	Action    string
+	Target    string
+	Payload   *string
+	CreatedAt time.Time
+}
