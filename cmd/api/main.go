@@ -71,6 +71,7 @@ func main() {
 	ucpVerifier.SetNonceStore(ucpapi.NewWebhookReplayNonceStore(services.WebhookReplay))
 	ucpOrderWebhookHandler := ucpapi.NewOrderWebhookHandlerWithVerifier(services, ucpVerifier)
 	paymentCallbackHandler := api.NewPaymentCallbackHandler(services.Payment, services.Order)
+	paymentRefundHandler := api.NewPaymentRefundHandler(services.Payment)
 	oauthMetadataHandler := api.NewOAuthMetadataHandler()
 	oauthTokenHandler := api.NewOAuthTokenHandler()
 	oauthAuthorizeHandler := api.NewOAuthAuthorizeHandler()
@@ -112,6 +113,9 @@ func main() {
 		})
 		apiGroup.POST("/payment/callback", func(c *gin.Context) {
 			paymentCallbackHandler.Handle(c)
+		})
+		apiGroup.POST("/payments/:id/refund", func(c *gin.Context) {
+			paymentRefundHandler.Create(c)
 		})
 
 		admin := apiGroup.Group("/admin")
