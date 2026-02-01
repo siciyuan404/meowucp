@@ -29,6 +29,7 @@ type Services struct {
 	OAuthClientRepo repository.OAuthClientRepository
 	OAuthTokenRepo  repository.OAuthTokenRepository
 	Promotion       *PromotionService
+	AuditLog        *AuditLogService
 }
 
 func NewServices(repos *repository.Repositories, redis *redis.Client) *Services {
@@ -45,6 +46,7 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 	checkoutService := NewCheckoutSessionService(repos.Checkout)
 	checkoutService.SetTaxShippingService(taxShipping)
 	promotionService := NewPromotionService(repos.Coupon)
+	auditLogService := NewAuditLogService(repos.AuditLog)
 
 	return &Services{
 		User:            NewUserService(repos.User),
@@ -56,6 +58,7 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 		Inventory:       NewInventoryService(repos.Product, repos.Inventory),
 		Checkout:        checkoutService,
 		Promotion:       promotionService,
+		AuditLog:        auditLogService,
 		Handler:         NewPaymentHandlerService(repos.Handler),
 		Webhook:         NewWebhookEventService(repos.Webhook),
 		UCPOrder:        NewUCPOrderService(repos.Order, repos.Payment),

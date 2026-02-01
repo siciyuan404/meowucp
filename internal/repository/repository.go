@@ -153,6 +153,12 @@ type ShippingRuleRepository interface {
 	ListByRegion(region string) ([]*domain.ShippingRule, error)
 }
 
+type AuditLogRepository interface {
+	Create(log *domain.AuditLog) error
+	List(offset, limit int) ([]*domain.AuditLog, error)
+	Count() (int64, error)
+}
+
 type CouponRepository interface {
 	FindByCode(code string) (*domain.Coupon, error)
 }
@@ -223,6 +229,7 @@ type Repositories struct {
 	TaxRule          TaxRuleRepository
 	ShippingRule     ShippingRuleRepository
 	Coupon           CouponRepository
+	AuditLog         AuditLogRepository
 	Webhook          UCPWebhookEventRepository
 	WebhookAudit     UCPWebhookAuditRepository
 	WebhookReplay    UCPWebhookReplayRepository
@@ -254,6 +261,7 @@ func NewRepositories(db *database.DB) *Repositories {
 		TaxRule:          NewTaxRuleRepository(db),
 		ShippingRule:     NewShippingRuleRepository(db),
 		Coupon:           NewCouponRepository(db),
+		AuditLog:         NewAuditLogRepository(db),
 		Webhook:          NewUCPWebhookEventRepository(db),
 		WebhookAudit:     NewUCPWebhookAuditRepository(db),
 		WebhookReplay:    NewUCPWebhookReplayRepository(db),

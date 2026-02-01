@@ -211,6 +211,23 @@ func (f *fakeOrderStatusLogRepo) Create(log *domain.OrderStatusLog) error {
 	return nil
 }
 
+type fakeAuditLogRepo struct {
+	created *domain.AuditLog
+}
+
+func (f *fakeAuditLogRepo) Create(log *domain.AuditLog) error {
+	f.created = log
+	return nil
+}
+
+func (f *fakeAuditLogRepo) List(offset, limit int) ([]*domain.AuditLog, error) {
+	return []*domain.AuditLog{}, nil
+}
+
+func (f *fakeAuditLogRepo) Count() (int64, error) {
+	return 0, nil
+}
+
 type fakeOrderWebhookQueueRepo struct {
 	jobs []*domain.UCPWebhookJob
 }
@@ -774,6 +791,26 @@ func TestOrderServiceReceiveMarksDelivered(t *testing.T) {
 	}
 	if orderRepo.order.Status != "delivered" {
 		t.Fatalf("expected order delivered")
+	}
+}
+
+func TestAdminOrderShipWritesAuditLog(t *testing.T) {
+	order := &domain.Order{ID: 100, Status: "paid"}
+	orderRepo := &fakeOrderStatusRepo{order: order}
+	shipmentRepo := &fakeShipmentRepo{}
+	statusLogRepo := &fakeOrderStatusLogRepo{}
+	auditRepo := &fakeAuditLogRepo{}
+
+	svc := NewOrderService(orderRepo, nil, nil, nil, nil)
+	svc.shipmentRepo = shipmentRepo
+	svc.statusLogRepo = statusLogRepo
+
+	audit := NewAuditLogService(auditRepo)
+	if err := audit.Record("admin", "ship_order", "order:100", ""); err != nil {
+		t.Fatalf("record audit: %v", err)
+	}
+	if auditRepo.created == nil {
+		t.Fatalf("expected audit log to be created")
 	}
 }
 
