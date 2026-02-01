@@ -164,6 +164,27 @@ type PaymentEvent struct {
 	CreatedAt time.Time
 }
 
+type OrderStatusLog struct {
+	ID         int64 `gorm:"primary_key"`
+	OrderID    int64 `gorm:"not null"`
+	FromStatus string
+	ToStatus   string
+	Reason     string
+	CreatedAt  time.Time
+}
+
+type Shipment struct {
+	ID          int64 `gorm:"primary_key"`
+	OrderID     int64 `gorm:"not null"`
+	Carrier     string
+	TrackingNo  string
+	Status      string
+	ShippedAt   *time.Time
+	DeliveredAt *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type InventoryLog struct {
 	ID             int64  `gorm:"primary_key"`
 	ProductID      int64  `gorm:"index;not null"`
