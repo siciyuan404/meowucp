@@ -320,3 +320,24 @@ type ShippingRule struct {
 	BaseAmount    float64
 	PerItemAmount float64
 }
+
+type Coupon struct {
+	ID         int64 `gorm:"primary_key"`
+	Code       string
+	Type       string
+	Value      float64
+	MinSpend   float64
+	UsageLimit int
+	UsedCount  int
+	StartsAt   *time.Time
+	EndsAt     *time.Time
+}
+
+type Promotion struct {
+	ID       int64 `gorm:"primary_key"`
+	Name     string
+	Rules    string
+	StartsAt time.Time
+	EndsAt   time.Time
+	Status   string
+}
