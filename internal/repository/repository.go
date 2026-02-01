@@ -71,10 +71,26 @@ type OrderRepository interface {
 	CreateOrderItem(item *domain.OrderItem) error
 }
 
+type ShipmentRepository interface {
+	Create(shipment *domain.Shipment) error
+	FindByOrderID(orderID int64) (*domain.Shipment, error)
+	Update(shipment *domain.Shipment) error
+}
+
+type OrderStatusLogRepository interface {
+	Create(log *domain.OrderStatusLog) error
+}
+
 type OrderIdempotencyRepository interface {
 	Create(record *domain.OrderIdempotency) error
 	FindByUserIDAndIdempotencyKey(userID int64, key string) (*domain.OrderIdempotency, error)
 	Update(record *domain.OrderIdempotency) error
+}
+
+type IdempotencyKeyRepository interface {
+	Create(record *domain.IdempotencyKey) error
+	FindByUserIDAndKey(userID int64, key string) (*domain.IdempotencyKey, error)
+	Update(record *domain.IdempotencyKey) error
 }
 
 type PaymentRepository interface {
@@ -85,6 +101,14 @@ type PaymentRepository interface {
 	FindByTransactionID(transactionID string) (*domain.Payment, error)
 	List(offset, limit int, filters map[string]interface{}) ([]*domain.Payment, error)
 	Count(filters map[string]interface{}) (int64, error)
+}
+
+type PaymentRefundRepository interface {
+	Create(refund *domain.PaymentRefund) error
+}
+
+type PaymentEventRepository interface {
+	Create(event *domain.PaymentEvent) error
 }
 
 type InventoryRepository interface {
@@ -106,6 +130,37 @@ type PaymentHandlerRepository interface {
 	FindByID(id int64) (*domain.PaymentHandler, error)
 	FindByName(name string) (*domain.PaymentHandler, error)
 	List() ([]*domain.PaymentHandler, error)
+}
+
+type OAuthClientRepository interface {
+	Create(client *domain.OAuthClient) error
+	FindByClientID(clientID string) (*domain.OAuthClient, error)
+	List(offset, limit int) ([]*domain.OAuthClient, error)
+	Count() (int64, error)
+}
+
+type OAuthTokenRepository interface {
+	Create(token *domain.OAuthToken) error
+	FindByToken(token string) (*domain.OAuthToken, error)
+	Revoke(token string, revokedAt time.Time) error
+}
+
+type TaxRuleRepository interface {
+	ListByRegion(region string) ([]*domain.TaxRule, error)
+}
+
+type ShippingRuleRepository interface {
+	ListByRegion(region string) ([]*domain.ShippingRule, error)
+}
+
+type AuditLogRepository interface {
+	Create(log *domain.AuditLog) error
+	List(offset, limit int) ([]*domain.AuditLog, error)
+	Count() (int64, error)
+}
+
+type CouponRepository interface {
+	FindByCode(code string) (*domain.Coupon, error)
 }
 
 type UCPWebhookEventRepository interface {
@@ -142,6 +197,27 @@ type UCPWebhookAlertRepository interface {
 	ExistsRecent(eventID, reason string, window time.Duration) (bool, error)
 }
 
+type WebhookDLQRepository interface {
+	Create(item *domain.WebhookDLQ) error
+	FindByID(id int64) (*domain.WebhookDLQ, error)
+	List(offset, limit int) ([]*domain.WebhookDLQ, error)
+	Count() (int64, error)
+}
+
+type WebhookReplayLogRepository interface {
+	Create(item *domain.WebhookReplayLog) error
+}
+
+type CurrencyRateRepository interface {
+	FindByBaseAndTarget(base, target string) (*domain.CurrencyRate, error)
+	Create(rate *domain.CurrencyRate) error
+}
+
+type I18nStringRepository interface {
+	FindByKeyAndLocale(key, locale string) (*domain.I18nString, error)
+	Create(str *domain.I18nString) error
+}
+
 type Repositories struct {
 	User             UserRepository
 	Product          ProductRepository
@@ -149,15 +225,30 @@ type Repositories struct {
 	Cart             CartRepository
 	Order            OrderRepository
 	OrderIdempotency OrderIdempotencyRepository
+	IdempotencyKey   IdempotencyKeyRepository
+	Shipment         ShipmentRepository
+	OrderStatusLog   OrderStatusLogRepository
 	Payment          PaymentRepository
+	PaymentRefund    PaymentRefundRepository
+	PaymentEvent     PaymentEventRepository
 	Inventory        InventoryRepository
 	Checkout         CheckoutSessionRepository
 	Handler          PaymentHandlerRepository
+	OAuthClient      OAuthClientRepository
+	OAuthToken       OAuthTokenRepository
+	TaxRule          TaxRuleRepository
+	ShippingRule     ShippingRuleRepository
+	Coupon           CouponRepository
+	AuditLog         AuditLogRepository
 	Webhook          UCPWebhookEventRepository
 	WebhookAudit     UCPWebhookAuditRepository
 	WebhookReplay    UCPWebhookReplayRepository
 	WebhookQueue     UCPWebhookQueueRepository
 	WebhookAlert     UCPWebhookAlertRepository
+	WebhookDLQ       WebhookDLQRepository
+	WebhookReplayLog WebhookReplayLogRepository
+	CurrencyRate     CurrencyRateRepository
+	I18nString       I18nStringRepository
 }
 
 func NewRepositories(db *database.DB) *Repositories {
@@ -168,14 +259,27 @@ func NewRepositories(db *database.DB) *Repositories {
 		Cart:             NewCartRepository(db),
 		Order:            NewOrderRepository(db),
 		OrderIdempotency: NewOrderIdempotencyRepository(db),
+		IdempotencyKey:   NewIdempotencyKeyRepository(db),
+		Shipment:         NewShipmentRepository(db),
+		OrderStatusLog:   NewOrderStatusLogRepository(db),
 		Payment:          NewPaymentRepository(db),
+		PaymentRefund:    NewPaymentRefundRepository(db),
+		PaymentEvent:     NewPaymentEventRepository(db),
 		Inventory:        NewInventoryRepository(db),
 		Checkout:         NewCheckoutSessionRepository(db),
 		Handler:          NewPaymentHandlerRepository(db),
+		OAuthClient:      NewOAuthClientRepository(db),
+		OAuthToken:       NewOAuthTokenRepository(db),
+		TaxRule:          NewTaxRuleRepository(db),
+		ShippingRule:     NewShippingRuleRepository(db),
+		Coupon:           NewCouponRepository(db),
+		AuditLog:         NewAuditLogRepository(db),
 		Webhook:          NewUCPWebhookEventRepository(db),
 		WebhookAudit:     NewUCPWebhookAuditRepository(db),
 		WebhookReplay:    NewUCPWebhookReplayRepository(db),
 		WebhookQueue:     NewUCPWebhookQueueRepository(db),
 		WebhookAlert:     NewUCPWebhookAlertRepository(db),
+		WebhookDLQ:       NewWebhookDLQRepository(db),
+		WebhookReplayLog: NewWebhookReplayLogRepository(db),
 	}
 }

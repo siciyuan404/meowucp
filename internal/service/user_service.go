@@ -8,44 +8,72 @@ import (
 )
 
 type Services struct {
-	User          *UserService
-	Product       *ProductService
-	Category      *CategoryService
-	Cart          *CartService
-	Order         *OrderService
-	Payment       *PaymentService
-	Inventory     *InventoryService
-	Checkout      *CheckoutSessionService
-	Handler       *PaymentHandlerService
-	Webhook       *WebhookEventService
-	UCPOrder      *UCPOrderService
-	WebhookAudit  *WebhookAuditService
-	WebhookReplay *WebhookReplayService
-	WebhookQueue  *WebhookQueueService
-	WebhookAlert  *WebhookAlertService
+	User            *UserService
+	Product         *ProductService
+	Category        *CategoryService
+	Cart            *CartService
+	Order           *OrderService
+	Payment         *PaymentService
+	Inventory       *InventoryService
+	Checkout        *CheckoutSessionService
+	Handler         *PaymentHandlerService
+	Webhook         *WebhookEventService
+	UCPOrder        *UCPOrderService
+	WebhookAudit    *WebhookAuditService
+	WebhookReplay   *WebhookReplayService
+	WebhookQueue    *WebhookQueueService
+	WebhookDLQ      *WebhookDLQService
+	WebhookAlert    *WebhookAlertService
+	OAuthClient     *OAuthClientService
+	OAuthToken      *OAuthTokenService
+	OAuthClientRepo repository.OAuthClientRepository
+	OAuthTokenRepo  repository.OAuthTokenRepository
+	Promotion       *PromotionService
+	AuditLog        *AuditLogService
+	Localization    *LocalizationService
 }
 
 func NewServices(repos *repository.Repositories, redis *redis.Client) *Services {
 	orderService := NewOrderService(repos.Order, repos.Cart, repos.Product, repos.Inventory, repos.OrderIdempotency)
 	webhookQueue := NewWebhookQueueService(repos.WebhookQueue)
 	orderService.SetWebhookQueue(webhookQueue)
+	orderService.SetShipmentRepo(repos.Shipment)
+	orderService.SetStatusLogRepo(repos.OrderStatusLog)
+	paymentService := NewPaymentServiceWithDeps(repos.Payment, repos.Order, repos.PaymentRefund, repos.PaymentEvent)
+	webhookDLQ := NewWebhookDLQService(webhookQueue, repos.WebhookDLQ)
+	oauthClient := NewOAuthClientService(repos.OAuthClient)
+	oauthToken := NewOAuthTokenService(repos.OAuthClient, repos.OAuthToken)
+	taxShipping := NewTaxShippingService(repos.TaxRule, repos.ShippingRule)
+	checkoutService := NewCheckoutSessionService(repos.Checkout)
+	checkoutService.SetTaxShippingService(taxShipping)
+	promotionService := NewPromotionService(repos.Coupon)
+	auditLogService := NewAuditLogService(repos.AuditLog)
+	localizationService := NewLocalizationService(repos.CurrencyRate, repos.I18nString)
 
 	return &Services{
-		User:          NewUserService(repos.User),
-		Product:       NewProductService(repos.Product, repos.Inventory, redis),
-		Category:      NewCategoryService(repos.Category),
-		Cart:          NewCartService(repos.Cart, repos.Product),
-		Order:         orderService,
-		Payment:       NewPaymentService(repos.Payment, repos.Order),
-		Inventory:     NewInventoryService(repos.Product, repos.Inventory),
-		Checkout:      NewCheckoutSessionService(repos.Checkout),
-		Handler:       NewPaymentHandlerService(repos.Handler),
-		Webhook:       NewWebhookEventService(repos.Webhook),
-		UCPOrder:      NewUCPOrderService(repos.Order, repos.Payment),
-		WebhookAudit:  NewWebhookAuditService(repos.WebhookAudit),
-		WebhookReplay: NewWebhookReplayService(repos.WebhookReplay),
-		WebhookQueue:  webhookQueue,
-		WebhookAlert:  NewWebhookAlertService(repos.WebhookAlert, repos.Webhook),
+		User:            NewUserService(repos.User),
+		Product:         NewProductService(repos.Product, repos.Inventory, redis),
+		Category:        NewCategoryService(repos.Category),
+		Cart:            NewCartService(repos.Cart, repos.Product),
+		Order:           orderService,
+		Payment:         paymentService,
+		Inventory:       NewInventoryService(repos.Product, repos.Inventory),
+		Checkout:        checkoutService,
+		Promotion:       promotionService,
+		AuditLog:        auditLogService,
+		Localization:    localizationService,
+		Handler:         NewPaymentHandlerService(repos.Handler),
+		Webhook:         NewWebhookEventService(repos.Webhook),
+		UCPOrder:        NewUCPOrderService(repos.Order, repos.Payment),
+		WebhookAudit:    NewWebhookAuditService(repos.WebhookAudit),
+		WebhookReplay:   NewWebhookReplayService(repos.WebhookReplay),
+		WebhookQueue:    webhookQueue,
+		WebhookDLQ:      webhookDLQ,
+		WebhookAlert:    NewWebhookAlertService(repos.WebhookAlert, repos.Webhook),
+		OAuthClient:     oauthClient,
+		OAuthToken:      oauthToken,
+		OAuthClientRepo: repos.OAuthClient,
+		OAuthTokenRepo:  repos.OAuthToken,
 	}
 }
 

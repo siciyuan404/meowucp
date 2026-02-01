@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGSERIAL PRIMARY KEY,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target TEXT NOT NULL,
+  payload JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

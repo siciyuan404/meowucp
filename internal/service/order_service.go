@@ -17,6 +17,8 @@ type OrderService struct {
 	inventoryRepo   repository.InventoryRepository
 	idempotencyRepo repository.OrderIdempotencyRepository
 	webhookQueue    *WebhookQueueService
+	shipmentRepo    repository.ShipmentRepository
+	statusLogRepo   repository.OrderStatusLogRepository
 }
 
 func NewOrderService(orderRepo repository.OrderRepository, cartRepo repository.CartRepository, productRepo repository.ProductRepository, inventoryRepo repository.InventoryRepository, idempotencyRepo repository.OrderIdempotencyRepository) *OrderService {
@@ -31,6 +33,14 @@ func NewOrderService(orderRepo repository.OrderRepository, cartRepo repository.C
 
 func (s *OrderService) SetWebhookQueue(queue *WebhookQueueService) {
 	s.webhookQueue = queue
+}
+
+func (s *OrderService) SetShipmentRepo(repo repository.ShipmentRepository) {
+	s.shipmentRepo = repo
+}
+
+func (s *OrderService) SetStatusLogRepo(repo repository.OrderStatusLogRepository) {
+	s.statusLogRepo = repo
 }
 
 type orderTransactionRunner interface {
@@ -282,6 +292,127 @@ func (s *OrderService) UpdateOrderStatus(id int64, status string) error {
 		}
 	}
 	return s.webhookQueue.EnqueueOrderEvent(order, status)
+}
+
+func (s *OrderService) CancelOrder(id int64, reason string) error {
+	if s.orderRepo == nil || s.productRepo == nil || s.inventoryRepo == nil {
+		return errors.New("order dependencies unavailable")
+	}
+	order, err := s.orderRepo.FindByID(id)
+	if err != nil || order == nil {
+		return errors.New("order not found")
+	}
+	if order.Status == "cancelled" {
+		return nil
+	}
+	for _, item := range order.Items {
+		if item.ProductID == nil {
+			continue
+		}
+		inventorySvc := NewInventoryService(s.productRepo, s.inventoryRepo)
+		if err := inventorySvc.AdjustStock(
+			*item.ProductID,
+			item.Quantity,
+			"in",
+			order.OrderNo,
+			"order_cancel",
+			fmt.Sprintf("Order %s cancelled", order.OrderNo),
+		); err != nil {
+			return err
+		}
+	}
+	now := time.Now()
+	order.Status = "cancelled"
+	order.CancelledAt = &now
+	if err := s.orderRepo.Update(order); err != nil {
+		return err
+	}
+	if s.statusLogRepo != nil {
+		_ = s.statusLogRepo.Create(&domain.OrderStatusLog{
+			OrderID:    order.ID,
+			FromStatus: "paid",
+			ToStatus:   "cancelled",
+			Reason:     reason,
+			CreatedAt:  time.Now(),
+		})
+	}
+	return nil
+}
+
+func (s *OrderService) ShipOrder(id int64, carrier, tracking string) (*domain.Shipment, error) {
+	if s.orderRepo == nil {
+		return nil, errors.New("order repository unavailable")
+	}
+	order, err := s.orderRepo.FindByID(id)
+	if err != nil || order == nil {
+		return nil, errors.New("order not found")
+	}
+	now := time.Now()
+	order.Status = "shipped"
+	order.ShippedAt = &now
+	if err := s.orderRepo.Update(order); err != nil {
+		return nil, err
+	}
+
+	shipment := &domain.Shipment{
+		OrderID:    id,
+		Carrier:    carrier,
+		TrackingNo: tracking,
+		Status:     "shipped",
+		ShippedAt:  &now,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}
+	if s.shipmentRepo != nil {
+		if err := s.shipmentRepo.Create(shipment); err != nil {
+			return nil, err
+		}
+	}
+	if s.statusLogRepo != nil {
+		_ = s.statusLogRepo.Create(&domain.OrderStatusLog{
+			OrderID:    id,
+			FromStatus: "paid",
+			ToStatus:   "shipped",
+			Reason:     "shipped",
+			CreatedAt:  time.Now(),
+		})
+	}
+	return shipment, nil
+}
+
+func (s *OrderService) ReceiveOrder(id int64) error {
+	if s.orderRepo == nil {
+		return errors.New("order repository unavailable")
+	}
+	order, err := s.orderRepo.FindByID(id)
+	if err != nil || order == nil {
+		return errors.New("order not found")
+	}
+	now := time.Now()
+	order.Status = "delivered"
+	order.DeliveredAt = &now
+	if err := s.orderRepo.Update(order); err != nil {
+		return err
+	}
+	if s.shipmentRepo != nil {
+		shipment, err := s.shipmentRepo.FindByOrderID(id)
+		if err == nil && shipment != nil {
+			shipment.Status = "delivered"
+			shipment.DeliveredAt = &now
+			shipment.UpdatedAt = time.Now()
+			_ = s.shipmentRepo.Update(shipment)
+		}
+	}
+	if s.statusLogRepo != nil {
+		_ = s.statusLogRepo.Create(&domain.OrderStatusLog{
+			OrderID:    id,
+			FromStatus: "shipped",
+			ToStatus:   "delivered",
+			Reason:     "delivered",
+			CreatedAt:  time.Now(),
+		})
+	}
+	return nil
 }
 
 func (s *OrderService) CreateOrderFromCheckout(order *domain.Order, items []domain.OrderItem, idempotencyKey string) (*domain.Order, error) {

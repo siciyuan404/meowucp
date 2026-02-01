@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/meowucp/internal/domain"
 	"github.com/meowucp/internal/repository"
@@ -19,6 +20,25 @@ func NewWebhookAlertService(repo repository.UCPWebhookAlertRepository, eventRepo
 func (s *WebhookAlertService) Create(alert *domain.UCPWebhookAlert) error {
 	if s == nil || s.repo == nil {
 		return nil
+	}
+	return s.repo.Create(alert)
+}
+
+func (s *WebhookAlertService) CreateDedup(alert *domain.UCPWebhookAlert, window time.Duration) error {
+	if s == nil || s.repo == nil {
+		return nil
+	}
+	if alert == nil {
+		return nil
+	}
+	if window > 0 {
+		exists, err := s.repo.ExistsRecent(alert.EventID, alert.Reason, window)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return nil
+		}
 	}
 	return s.repo.Create(alert)
 }

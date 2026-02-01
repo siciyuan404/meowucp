@@ -185,3 +185,14 @@ func TestProcessorNotifiesAlertOnFailure(t *testing.T) {
 		t.Fatalf("expected alert to include event_id")
 	}
 }
+
+func TestAsyncOrderFollowupEnqueued(t *testing.T) {
+	queue := &fakeQueueStore{}
+	processor := NewProcessor(queue, ProcessorConfig{MaxAttempts: 3})
+	if err := processor.EnqueueFollowup("order:1", "email"); err != nil {
+		t.Fatalf("enqueue followup: %v", err)
+	}
+	if len(queue.updatedJobs) != 1 {
+		t.Fatalf("expected followup job to be queued")
+	}
+}

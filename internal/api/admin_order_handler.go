@@ -13,6 +13,9 @@ type AdminOrderService interface {
 	ListOrders(offset, limit int, filters map[string]interface{}) ([]*domain.Order, int64, error)
 	GetOrder(id int64) (*domain.Order, error)
 	UpdateOrderStatus(id int64, status string) error
+	CancelOrder(id int64, reason string) error
+	ShipOrder(id int64, carrier, tracking string) (*domain.Shipment, error)
+	ReceiveOrder(id int64) error
 }
 
 type AdminOrderHandler struct {
@@ -118,11 +121,53 @@ func (h *AdminOrderHandler) Get(c *gin.Context) {
 }
 
 func (h *AdminOrderHandler) Ship(c *gin.Context) {
-	h.updateStatus(c, "shipped")
+	id, ok := h.parseOrderID(c)
+	if !ok {
+		return
+	}
+	order, ok := h.ensureTransitionAllowed(c, id, "shipped")
+	if !ok {
+		return
+	}
+	carrier := c.DefaultQuery("carrier", "")
+	tracking := c.DefaultQuery("tracking_no", "")
+	if _, err := h.service.ShipOrder(order.ID, carrier, tracking); err != nil {
+		respondError(c, http.StatusInternalServerError, "update_failed", "Failed to ship order")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "shipped"})
 }
 
 func (h *AdminOrderHandler) Cancel(c *gin.Context) {
-	h.updateStatus(c, "cancelled")
+	id, ok := h.parseOrderID(c)
+	if !ok {
+		return
+	}
+	_, ok = h.ensureTransitionAllowed(c, id, "cancelled")
+	if !ok {
+		return
+	}
+	if err := h.service.CancelOrder(id, "admin_cancel"); err != nil {
+		respondError(c, http.StatusInternalServerError, "update_failed", "Failed to cancel order")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
+}
+
+func (h *AdminOrderHandler) Receive(c *gin.Context) {
+	id, ok := h.parseOrderID(c)
+	if !ok {
+		return
+	}
+	_, ok = h.ensureTransitionAllowed(c, id, "delivered")
+	if !ok {
+		return
+	}
+	if err := h.service.ReceiveOrder(id); err != nil {
+		respondError(c, http.StatusInternalServerError, "update_failed", "Failed to receive order")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "delivered"})
 }
 
 func (h *AdminOrderHandler) Refund(c *gin.Context) {
@@ -130,18 +175,12 @@ func (h *AdminOrderHandler) Refund(c *gin.Context) {
 }
 
 func (h *AdminOrderHandler) updateStatus(c *gin.Context, status string) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		respondError(c, http.StatusBadRequest, "invalid_id", "Invalid order id")
+	id, ok := h.parseOrderID(c)
+	if !ok {
 		return
 	}
-	order, err := h.service.GetOrder(id)
-	if err != nil {
-		respondError(c, http.StatusNotFound, "order_not_found", "Order not found")
-		return
-	}
-	if !canTransition(order.Status, status) {
-		respondError(c, http.StatusBadRequest, "invalid_status_transition", "Invalid order status transition")
+	_, ok = h.ensureTransitionAllowed(c, id, status)
+	if !ok {
 		return
 	}
 	if err := h.service.UpdateOrderStatus(id, status); err != nil {
@@ -149,6 +188,28 @@ func (h *AdminOrderHandler) updateStatus(c *gin.Context, status string) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": status})
+}
+
+func (h *AdminOrderHandler) parseOrderID(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid_id", "Invalid order id")
+		return 0, false
+	}
+	return id, true
+}
+
+func (h *AdminOrderHandler) ensureTransitionAllowed(c *gin.Context, id int64, status string) (*domain.Order, bool) {
+	order, err := h.service.GetOrder(id)
+	if err != nil {
+		respondError(c, http.StatusNotFound, "order_not_found", "Order not found")
+		return nil, false
+	}
+	if !canTransition(order.Status, status) {
+		respondError(c, http.StatusBadRequest, "invalid_status_transition", "Invalid order status transition")
+		return nil, false
+	}
+	return order, true
 }
 
 func canTransition(current, next string) bool {
@@ -159,6 +220,8 @@ func canTransition(current, next string) bool {
 		return current == "pending" || current == "paid"
 	case "refunded":
 		return current == "paid"
+	case "delivered":
+		return current == "shipped"
 	default:
 		return false
 	}

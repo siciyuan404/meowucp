@@ -7,10 +7,22 @@ import (
 
 type CheckoutSessionService struct {
 	repo repository.CheckoutSessionRepository
+	tax  *TaxShippingService
 }
 
 func NewCheckoutSessionService(repo repository.CheckoutSessionRepository) *CheckoutSessionService {
 	return &CheckoutSessionService{repo: repo}
+}
+
+func (s *CheckoutSessionService) SetTaxShippingService(service *TaxShippingService) {
+	s.tax = service
+}
+
+func (s *CheckoutSessionService) Quote(region string, items []domain.OrderItem) (float64, float64, error) {
+	if s == nil || s.tax == nil {
+		return 0, 0, nil
+	}
+	return s.tax.Quote(region, items)
 }
 
 func (s *CheckoutSessionService) Create(session *domain.CheckoutSession) error {

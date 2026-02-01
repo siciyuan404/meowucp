@@ -48,6 +48,50 @@ func (f *fakeQueueRepo) FindByID(id int64) (*domain.UCPWebhookJob, error) {
 	return job, nil
 }
 
+type fakeWebhookDLQRepo struct {
+	created *domain.WebhookDLQ
+	items   []*domain.WebhookDLQ
+}
+
+func (f *fakeWebhookDLQRepo) Create(item *domain.WebhookDLQ) error {
+	f.created = item
+	f.items = append(f.items, item)
+	return nil
+}
+
+func (f *fakeWebhookDLQRepo) FindByID(id int64) (*domain.WebhookDLQ, error) {
+	for _, item := range f.items {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+
+func (f *fakeWebhookDLQRepo) List(offset, limit int) ([]*domain.WebhookDLQ, error) {
+	if offset >= len(f.items) {
+		return []*domain.WebhookDLQ{}, nil
+	}
+	end := offset + limit
+	if end > len(f.items) {
+		end = len(f.items)
+	}
+	return f.items[offset:end], nil
+}
+
+func (f *fakeWebhookDLQRepo) Count() (int64, error) {
+	return int64(len(f.items)), nil
+}
+
+type fakeWebhookReplayLogRepo struct {
+	created *domain.WebhookReplayLog
+}
+
+func (f *fakeWebhookReplayLogRepo) Create(item *domain.WebhookReplayLog) error {
+	f.created = item
+	return nil
+}
+
 func TestBuildOrderWebhookPayload(t *testing.T) {
 	order := &domain.Order{OrderNo: "ORD-1", Status: "paid", CreatedAt: time.Unix(1000, 0).UTC()}
 	payload, err := buildOrderWebhookPayload(order, "paid")
@@ -89,5 +133,39 @@ func TestWebhookQueueRescheduleNow(t *testing.T) {
 	}
 	if !repo.updated.NextRetryAt.Before(time.Now().Add(2 * time.Second)) {
 		t.Fatalf("expected next_retry_at to be near now")
+	}
+}
+
+func TestWebhookQueueMovesToDLQAfterMaxAttempts(t *testing.T) {
+	repo := newFakeQueueRepo()
+	job := &domain.UCPWebhookJob{ID: 10, EventID: "evt_1", Status: "failed", Attempts: 5, Payload: "{}"}
+	repo.jobs[10] = job
+
+	dlqRepo := &fakeWebhookDLQRepo{}
+	replayRepo := &fakeWebhookReplayLogRepo{}
+	service := NewWebhookQueueServiceWithDeps(repo, dlqRepo, replayRepo)
+
+	if err := service.MoveToDLQ(job, "max_attempts"); err != nil {
+		t.Fatalf("move to dlq: %v", err)
+	}
+	if dlqRepo.created == nil {
+		t.Fatalf("expected dlq record")
+	}
+}
+
+func TestWebhookReplayLogsResult(t *testing.T) {
+	repo := newFakeQueueRepo()
+	job := &domain.UCPWebhookJob{ID: 11, EventID: "evt_2", Status: "failed", Attempts: 2, Payload: "{}"}
+	repo.jobs[11] = job
+
+	dlqRepo := &fakeWebhookDLQRepo{}
+	replayRepo := &fakeWebhookReplayLogRepo{}
+	service := NewWebhookQueueServiceWithDeps(repo, dlqRepo, replayRepo)
+
+	if err := service.ReplayJob(11); err != nil {
+		t.Fatalf("replay job: %v", err)
+	}
+	if replayRepo.created == nil {
+		t.Fatalf("expected replay log")
 	}
 }

@@ -177,6 +177,57 @@ func (f *fakeOrderStatusRepo) UpdateStatus(id int64, status string) error {
 }
 func (f *fakeOrderStatusRepo) CreateOrderItem(item *domain.OrderItem) error { return nil }
 
+type fakeShipmentRepo struct {
+	created *domain.Shipment
+	updated *domain.Shipment
+}
+
+func (f *fakeShipmentRepo) Create(shipment *domain.Shipment) error {
+	f.created = shipment
+	return nil
+}
+
+func (f *fakeShipmentRepo) FindByOrderID(orderID int64) (*domain.Shipment, error) {
+	if f.created != nil && f.created.OrderID == orderID {
+		return f.created, nil
+	}
+	if f.updated != nil && f.updated.OrderID == orderID {
+		return f.updated, nil
+	}
+	return nil, errors.New("not found")
+}
+
+func (f *fakeShipmentRepo) Update(shipment *domain.Shipment) error {
+	f.updated = shipment
+	return nil
+}
+
+type fakeOrderStatusLogRepo struct {
+	logs []*domain.OrderStatusLog
+}
+
+func (f *fakeOrderStatusLogRepo) Create(log *domain.OrderStatusLog) error {
+	f.logs = append(f.logs, log)
+	return nil
+}
+
+type fakeAuditLogRepo struct {
+	created *domain.AuditLog
+}
+
+func (f *fakeAuditLogRepo) Create(log *domain.AuditLog) error {
+	f.created = log
+	return nil
+}
+
+func (f *fakeAuditLogRepo) List(offset, limit int) ([]*domain.AuditLog, error) {
+	return []*domain.AuditLog{}, nil
+}
+
+func (f *fakeAuditLogRepo) Count() (int64, error) {
+	return 0, nil
+}
+
 type fakeOrderWebhookQueueRepo struct {
 	jobs []*domain.UCPWebhookJob
 }
@@ -684,6 +735,82 @@ func TestOrderServiceCreateOrderMarksIdempotencyFailedOnNonTransactionError(t *t
 	}
 	if idempotencyRepo.record == nil || idempotencyRepo.record.Status != "failed" {
 		t.Fatalf("expected idempotency record status to be failed")
+	}
+}
+
+func TestOrderServiceCancelRollsBackInventory(t *testing.T) {
+	productID := int64(10)
+	orderRepo := &fakeOrderStatusRepo{order: &domain.Order{ID: 1, Status: "paid", Items: []domain.OrderItem{{OrderID: 1, ProductID: &productID, Quantity: 1, SKU: "SKU-1"}}}}
+	productRepo := &fakeProductRepo{products: map[int64]*domain.Product{
+		10: {ID: 10, Name: "Item", SKU: "SKU-1", StockQuantity: 1},
+	}}
+	inventoryRepo := &fakeInventoryRepo{}
+
+	svc := NewOrderService(orderRepo, nil, productRepo, inventoryRepo, nil)
+
+	if err := svc.CancelOrder(1, "customer_request"); err != nil {
+		t.Fatalf("cancel order: %v", err)
+	}
+	if productRepo.updatedStock[10] != 2 {
+		t.Fatalf("expected stock rollback to 2")
+	}
+}
+
+func TestOrderServiceShipCreatesShipmentAndLog(t *testing.T) {
+	orderRepo := &fakeOrderStatusRepo{order: &domain.Order{ID: 2, Status: "paid"}}
+	shipmentRepo := &fakeShipmentRepo{}
+	statusLogRepo := &fakeOrderStatusLogRepo{}
+
+	svc := NewOrderService(orderRepo, nil, nil, nil, nil)
+	svc.shipmentRepo = shipmentRepo
+	svc.statusLogRepo = statusLogRepo
+
+	shipment, err := svc.ShipOrder(2, "UPS", "TRACK-1")
+	if err != nil {
+		t.Fatalf("ship order: %v", err)
+	}
+	if shipment == nil || shipment.OrderID != 2 {
+		t.Fatalf("expected shipment to be created")
+	}
+	if len(statusLogRepo.logs) != 1 {
+		t.Fatalf("expected status log to be created")
+	}
+}
+
+func TestOrderServiceReceiveMarksDelivered(t *testing.T) {
+	orderRepo := &fakeOrderStatusRepo{order: &domain.Order{ID: 3, Status: "shipped"}}
+	shipmentRepo := &fakeShipmentRepo{}
+	statusLogRepo := &fakeOrderStatusLogRepo{}
+
+	svc := NewOrderService(orderRepo, nil, nil, nil, nil)
+	svc.shipmentRepo = shipmentRepo
+	svc.statusLogRepo = statusLogRepo
+
+	if err := svc.ReceiveOrder(3); err != nil {
+		t.Fatalf("receive order: %v", err)
+	}
+	if orderRepo.order.Status != "delivered" {
+		t.Fatalf("expected order delivered")
+	}
+}
+
+func TestAdminOrderShipWritesAuditLog(t *testing.T) {
+	order := &domain.Order{ID: 100, Status: "paid"}
+	orderRepo := &fakeOrderStatusRepo{order: order}
+	shipmentRepo := &fakeShipmentRepo{}
+	statusLogRepo := &fakeOrderStatusLogRepo{}
+	auditRepo := &fakeAuditLogRepo{}
+
+	svc := NewOrderService(orderRepo, nil, nil, nil, nil)
+	svc.shipmentRepo = shipmentRepo
+	svc.statusLogRepo = statusLogRepo
+
+	audit := NewAuditLogService(auditRepo)
+	if err := audit.Record("admin", "ship_order", "order:100", ""); err != nil {
+		t.Fatalf("record audit: %v", err)
+	}
+	if auditRepo.created == nil {
+		t.Fatalf("expected audit log to be created")
 	}
 }
 

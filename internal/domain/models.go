@@ -108,6 +108,17 @@ type OrderIdempotency struct {
 	UpdatedAt      time.Time
 }
 
+type IdempotencyKey struct {
+	ID               int64 `gorm:"primary_key"`
+	UserID           int64 `gorm:"not null"`
+	Key              string
+	RequestHash      string
+	ResponseSnapshot *string
+	Status           string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type OrderItem struct {
 	ID          int64  `gorm:"primary_key"`
 	OrderID     int64  `gorm:"index;not null"`
@@ -132,6 +143,46 @@ type Payment struct {
 	PaymentPayload string `gorm:"type:jsonb"`
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+type PaymentRefund struct {
+	ID          int64 `gorm:"primary_key"`
+	PaymentID   int64 `gorm:"not null"`
+	Amount      float64
+	Status      string
+	Reason      string
+	ExternalRef *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type PaymentEvent struct {
+	ID        int64 `gorm:"primary_key"`
+	PaymentID int64 `gorm:"not null"`
+	EventType string
+	Payload   *string
+	CreatedAt time.Time
+}
+
+type OrderStatusLog struct {
+	ID         int64 `gorm:"primary_key"`
+	OrderID    int64 `gorm:"not null"`
+	FromStatus string
+	ToStatus   string
+	Reason     string
+	CreatedAt  time.Time
+}
+
+type Shipment struct {
+	ID          int64 `gorm:"primary_key"`
+	OrderID     int64 `gorm:"not null"`
+	Carrier     string
+	TrackingNo  string
+	Status      string
+	ShippedAt   *time.Time
+	DeliveredAt *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type InventoryLog struct {
@@ -218,4 +269,113 @@ type UCPWebhookAlert struct {
 	Details   string
 	Attempts  int
 	CreatedAt time.Time
+}
+
+type WebhookDLQ struct {
+	ID        int64 `gorm:"primary_key"`
+	JobID     int64
+	Reason    string
+	Payload   string
+	CreatedAt time.Time
+}
+
+type WebhookReplayLog struct {
+	ID       int64 `gorm:"primary_key"`
+	JobID    int64
+	ReplayAt time.Time
+	Result   string
+}
+
+type OAuthClient struct {
+	ID         int64 `gorm:"primary_key"`
+	ClientID   string
+	SecretHash string
+	Scopes     string
+	Status     string
+	CreatedAt  time.Time
+}
+
+type OAuthToken struct {
+	ID        int64 `gorm:"primary_key"`
+	Token     string
+	ClientID  string
+	UserID    *int64
+	Scopes    string
+	ExpiresAt time.Time
+	RevokedAt *time.Time
+}
+
+type TaxRule struct {
+	ID          int64 `gorm:"primary_key"`
+	Region      string
+	Category    string
+	Rate        float64
+	EffectiveAt time.Time
+}
+
+type ShippingRule struct {
+	ID            int64 `gorm:"primary_key"`
+	Region        string
+	Method        string
+	BaseAmount    float64
+	PerItemAmount float64
+}
+
+type Coupon struct {
+	ID         int64 `gorm:"primary_key"`
+	Code       string
+	Type       string
+	Value      float64
+	MinSpend   float64
+	UsageLimit int
+	UsedCount  int
+	StartsAt   *time.Time
+	EndsAt     *time.Time
+}
+
+type Promotion struct {
+	ID       int64 `gorm:"primary_key"`
+	Name     string
+	Rules    string
+	StartsAt time.Time
+	EndsAt   time.Time
+	Status   string
+}
+
+type AuditLog struct {
+	ID        int64 `gorm:"primary_key"`
+	Actor     string
+	Action    string
+	Target    string
+	Payload   *string
+	CreatedAt time.Time
+}
+
+type DataRetentionPolicy struct {
+	ID       int64 `gorm:"primary_key"`
+	Entity   string
+	TTLDays  int
+	Strategy string
+}
+
+type CurrencyRate struct {
+	ID        int64 `gorm:"primary_key"`
+	Base      string
+	Target    string
+	Rate      float64
+	UpdatedAt time.Time
+}
+
+type I18nString struct {
+	ID     int64 `gorm:"primary_key"`
+	Key    string
+	Locale string
+	Value  string
+}
+
+type ReleaseHistory struct {
+	ID         int64 `gorm:"primary_key"`
+	Version    string
+	DeployedAt time.Time
+	Operator   string
 }

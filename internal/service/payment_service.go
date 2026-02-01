@@ -1,7 +1,9 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/meowucp/internal/domain"
 	"github.com/meowucp/internal/repository"
@@ -10,12 +12,23 @@ import (
 type PaymentService struct {
 	paymentRepo repository.PaymentRepository
 	orderRepo   repository.OrderRepository
+	refundRepo  repository.PaymentRefundRepository
+	eventRepo   repository.PaymentEventRepository
 }
 
 func NewPaymentService(paymentRepo repository.PaymentRepository, orderRepo repository.OrderRepository) *PaymentService {
 	return &PaymentService{
 		paymentRepo: paymentRepo,
 		orderRepo:   orderRepo,
+	}
+}
+
+func NewPaymentServiceWithDeps(paymentRepo repository.PaymentRepository, orderRepo repository.OrderRepository, refundRepo repository.PaymentRefundRepository, eventRepo repository.PaymentEventRepository) *PaymentService {
+	return &PaymentService{
+		paymentRepo: paymentRepo,
+		orderRepo:   orderRepo,
+		refundRepo:  refundRepo,
+		eventRepo:   eventRepo,
 	}
 }
 
@@ -80,4 +93,72 @@ func (s *PaymentService) MarkPaymentPaid(orderID int64, transactionID string) er
 		payment.TransactionID = transactionID
 	}
 	return s.paymentRepo.Update(payment)
+}
+
+func (s *PaymentService) CreateRefund(paymentID int64, amount float64, reason string) (*domain.PaymentRefund, error) {
+	if s == nil || s.paymentRepo == nil || s.orderRepo == nil || s.refundRepo == nil || s.eventRepo == nil {
+		return nil, errors.New("refund_dependencies_unavailable")
+	}
+	if amount <= 0 {
+		return nil, errors.New("invalid_refund_amount")
+	}
+	payment, err := s.paymentRepo.FindByID(paymentID)
+	if err != nil || payment == nil {
+		return nil, errors.New("payment_not_found")
+	}
+	if amount > payment.Amount {
+		return nil, errors.New("refund_amount_exceeds_payment")
+	}
+
+	refund := &domain.PaymentRefund{
+		PaymentID: paymentID,
+		Amount:    amount,
+		Status:    "completed",
+		Reason:    reason,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := s.refundRepo.Create(refund); err != nil {
+		return nil, err
+	}
+
+	status := "partially_refunded"
+	if amount == payment.Amount {
+		status = "refunded"
+	}
+	payment.Status = status
+	if err := s.paymentRepo.Update(payment); err != nil {
+		return nil, err
+	}
+
+	if status == "refunded" {
+		order, err := s.orderRepo.FindByID(payment.OrderID)
+		if err != nil || order == nil {
+			return nil, errors.New("order_not_found")
+		}
+		now := time.Now()
+		order.Status = "refunded"
+		order.PaymentStatus = "refunded"
+		order.RefundedAt = &now
+		if err := s.orderRepo.Update(order); err != nil {
+			return nil, err
+		}
+	}
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"payment_id": paymentID,
+		"amount":     amount,
+		"reason":     reason,
+	})
+	payloadText := string(payload)
+	if err := s.eventRepo.Create(&domain.PaymentEvent{
+		PaymentID: paymentID,
+		EventType: "refund_created",
+		Payload:   &payloadText,
+		CreatedAt: time.Now(),
+	}); err != nil {
+		return nil, err
+	}
+
+	return refund, nil
 }

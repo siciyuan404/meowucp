@@ -59,6 +59,7 @@ func main() {
 	r := gin.Default()
 
 	r.Use(middleware.CORS())
+	r.Use(middleware.RequestLogger())
 
 	authMiddleware := middleware.NewAuthMiddleware(cfg.JWT.Secret)
 	ucpProfileHandler := ucpapi.NewProfileHandler(services)
@@ -68,15 +69,24 @@ func main() {
 	})
 	ucpVerifier := security.NewJWKVerifier(cfg.UCP.Webhook.JWKSetURL, cfg.UCP.Webhook.ClockSkewSeconds)
 	ucpVerifier.SetSkipVerify(cfg.UCP.Webhook.SkipSignatureVerify)
+	ucpVerifier.SetNonceStore(ucpapi.NewWebhookReplayNonceStore(services.WebhookReplay))
 	ucpOrderWebhookHandler := ucpapi.NewOrderWebhookHandlerWithVerifier(services, ucpVerifier)
 	paymentCallbackHandler := api.NewPaymentCallbackHandler(services.Payment, services.Order)
+	paymentRefundHandler := api.NewPaymentRefundHandler(services.Payment)
 	oauthMetadataHandler := api.NewOAuthMetadataHandler()
-	oauthTokenHandler := api.NewOAuthTokenHandler()
+	oauthTokenHandler := api.NewOAuthTokenHandlerWithRepos(services.OAuthClientRepo, services.OAuthTokenRepo)
 	oauthAuthorizeHandler := api.NewOAuthAuthorizeHandler()
+	oauthRevokeHandler := api.NewOAuthRevokeHandler(services.OAuthToken)
 	adminOrderWebhookHandler := api.NewAdminOrderWebhookHandler(services.Order, services.WebhookQueue, api.AdminOrderWebhookConfig{
 		DeliveryURL: cfg.UCP.Webhook.DeliveryURL,
 		Timeout:     time.Duration(cfg.UCP.Webhook.DeliveryTimeoutSec) * time.Second,
 	})
+	adminWebhookDLQHandler := api.NewAdminWebhookDLQHandler(services.WebhookDLQ)
+	adminOAuthClientHandler := api.NewAdminOAuthClientHandler(services.OAuthClient)
+	shippingRateHandler := api.NewShippingRateHandler(services.Checkout)
+	addressValidationHandler := api.NewAddressValidationHandler()
+	couponHandler := api.NewCouponHandler(services.Promotion)
+	metricsHandler := api.NewMetricsHandler(cfg.Server.MetricsToken)
 
 	apiGroup := r.Group("/api/v1")
 	{
@@ -105,12 +115,39 @@ func main() {
 			})
 		}
 
+		productHandler := api.NewProductHandler(services.Product, services.Localization)
+		apiGroup.GET("/products", func(c *gin.Context) {
+			productHandler.List(c)
+		})
+		apiGroup.GET("/products/:id", func(c *gin.Context) {
+			productHandler.Get(c)
+		})
+		categoryHandler := api.NewCategoryHandler(services.Category, nil)
+		apiGroup.GET("/categories", func(c *gin.Context) {
+			categoryHandler.List(c)
+		})
+		apiGroup.GET("/categories/:id", func(c *gin.Context) {
+			categoryHandler.Get(c)
+		})
+
 		orderHandler := api.NewOrderHandler(services.Order)
 		apiGroup.POST("/orders", func(c *gin.Context) {
 			orderHandler.Create(c)
 		})
 		apiGroup.POST("/payment/callback", func(c *gin.Context) {
 			paymentCallbackHandler.Handle(c)
+		})
+		apiGroup.POST("/payments/:id/refund", func(c *gin.Context) {
+			paymentRefundHandler.Create(c)
+		})
+		apiGroup.GET("/shipping/rates", func(c *gin.Context) {
+			shippingRateHandler.List(c)
+		})
+		apiGroup.POST("/address/validate", func(c *gin.Context) {
+			addressValidationHandler.Validate(c)
+		})
+		apiGroup.POST("/coupons/validate", func(c *gin.Context) {
+			couponHandler.Validate(c)
 		})
 
 		admin := apiGroup.Group("/admin")
@@ -186,11 +223,31 @@ func main() {
 			admin.POST("/orders/:id/ship", func(c *gin.Context) {
 				adminOrderHandler.Ship(c)
 			})
+			admin.POST("/orders/:id/receive", func(c *gin.Context) {
+				adminOrderHandler.Receive(c)
+			})
 			admin.POST("/orders/:id/cancel", func(c *gin.Context) {
 				adminOrderHandler.Cancel(c)
 			})
 			admin.POST("/orders/:id/refund", func(c *gin.Context) {
 				adminOrderHandler.Refund(c)
+			})
+			admin.POST("/webhooks/dlq/:id/replay", func(c *gin.Context) {
+				adminWebhookDLQHandler.Replay(c)
+			})
+			admin.GET("/webhooks/dlq", func(c *gin.Context) {
+				adminWebhookDLQHandler.List(c)
+			})
+			admin.POST("/oauth/clients", func(c *gin.Context) {
+				adminOAuthClientHandler.Create(c)
+			})
+			admin.GET("/oauth/clients", func(c *gin.Context) {
+				adminOAuthClientHandler.List(c)
+			})
+
+			adminAuditHandler := api.NewAdminAuditHandler(services.AuditLog)
+			admin.GET("/audit-logs", func(c *gin.Context) {
+				adminAuditHandler.List(c)
 			})
 
 			adminPaymentHandler := api.NewAdminPaymentHandler(services.Payment)
@@ -206,8 +263,14 @@ func main() {
 	r.GET("/.well-known/oauth-authorization-server", func(c *gin.Context) {
 		oauthMetadataHandler.WellKnown(c)
 	})
+	r.GET("/metrics", func(c *gin.Context) {
+		metricsHandler.Serve(c)
+	})
 	r.POST("/oauth2/token", func(c *gin.Context) {
 		oauthTokenHandler.Token(c)
+	})
+	r.POST("/oauth2/revoke", func(c *gin.Context) {
+		oauthRevokeHandler.Revoke(c)
 	})
 	r.GET("/oauth2/authorize", func(c *gin.Context) {
 		oauthAuthorizeHandler.Authorize(c)

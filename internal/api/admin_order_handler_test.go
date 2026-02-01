@@ -16,10 +16,11 @@ type fakeOrderService struct {
 	lastID        int64
 	statusUpdates map[int64]string
 	lastFilters   map[string]interface{}
+	shipments     map[int64]*domain.Shipment
 }
 
 func newFakeOrderService() *fakeOrderService {
-	return &fakeOrderService{orders: map[int64]*domain.Order{}, statusUpdates: map[int64]string{}}
+	return &fakeOrderService{orders: map[int64]*domain.Order{}, statusUpdates: map[int64]string{}, shipments: map[int64]*domain.Shipment{}}
 }
 
 func (f *fakeOrderService) ListOrders(offset, limit int, filters map[string]interface{}) ([]*domain.Order, int64, error) {
@@ -43,6 +44,32 @@ func (f *fakeOrderService) UpdateOrderStatus(id int64, status string) error {
 	f.statusUpdates[id] = status
 	if order, ok := f.orders[id]; ok {
 		order.Status = status
+	}
+	return nil
+}
+
+func (f *fakeOrderService) CancelOrder(id int64, reason string) error {
+	f.statusUpdates[id] = "cancelled"
+	if order, ok := f.orders[id]; ok {
+		order.Status = "cancelled"
+	}
+	return nil
+}
+
+func (f *fakeOrderService) ShipOrder(id int64, carrier, tracking string) (*domain.Shipment, error) {
+	shipment := &domain.Shipment{OrderID: id, Carrier: carrier, TrackingNo: tracking, Status: "shipped"}
+	f.shipments[id] = shipment
+	f.statusUpdates[id] = "shipped"
+	if order, ok := f.orders[id]; ok {
+		order.Status = "shipped"
+	}
+	return shipment, nil
+}
+
+func (f *fakeOrderService) ReceiveOrder(id int64) error {
+	f.statusUpdates[id] = "delivered"
+	if order, ok := f.orders[id]; ok {
+		order.Status = "delivered"
 	}
 	return nil
 }
@@ -175,7 +202,7 @@ func TestAdminOrderShip(t *testing.T) {
 	r := gin.New()
 	r.POST("/api/v1/admin/orders/:id/ship", handler.Ship)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/orders/1/ship", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/orders/1/ship?carrier=UPS&tracking_no=TRACK-1", nil)
 	resp := httptest.NewRecorder()
 	r.ServeHTTP(resp, req)
 
@@ -184,6 +211,9 @@ func TestAdminOrderShip(t *testing.T) {
 	}
 	if svc.statusUpdates[1] != "shipped" {
 		t.Fatalf("expected status update to shipped")
+	}
+	if svc.shipments[1] == nil || svc.shipments[1].TrackingNo != "TRACK-1" {
+		t.Fatalf("expected shipment to be created")
 	}
 }
 
@@ -227,6 +257,49 @@ func TestAdminOrderCancel(t *testing.T) {
 	}
 	if svc.statusUpdates[1] != "cancelled" {
 		t.Fatalf("expected status update to cancelled")
+	}
+}
+
+func TestAdminOrderReceive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	svc := newFakeOrderService()
+	svc.orders[1] = &domain.Order{ID: 1, Status: "shipped"}
+
+	handler := NewAdminOrderHandler(svc)
+
+	r := gin.New()
+	r.POST("/api/v1/admin/orders/:id/receive", handler.Receive)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/orders/1/receive", nil)
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	if svc.statusUpdates[1] != "delivered" {
+		t.Fatalf("expected status update to delivered")
+	}
+}
+
+func TestAdminOrderReceiveRejectsInvalidState(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	svc := newFakeOrderService()
+	svc.orders[1] = &domain.Order{ID: 1, Status: "paid"}
+
+	handler := NewAdminOrderHandler(svc)
+
+	r := gin.New()
+	r.POST("/api/v1/admin/orders/:id/receive", handler.Receive)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/orders/1/receive", nil)
+	resp := httptest.NewRecorder()
+	r.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.Code)
 	}
 }
 

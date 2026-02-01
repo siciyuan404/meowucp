@@ -14,7 +14,9 @@ import (
 )
 
 type WebhookQueueService struct {
-	repo repository.UCPWebhookQueueRepository
+	repo          repository.UCPWebhookQueueRepository
+	dlqRepo       repository.WebhookDLQRepository
+	replayLogRepo repository.WebhookReplayLogRepository
 }
 
 type orderWebhookPayload struct {
@@ -26,6 +28,10 @@ type orderWebhookPayload struct {
 
 func NewWebhookQueueService(repo repository.UCPWebhookQueueRepository) *WebhookQueueService {
 	return &WebhookQueueService{repo: repo}
+}
+
+func NewWebhookQueueServiceWithDeps(repo repository.UCPWebhookQueueRepository, dlqRepo repository.WebhookDLQRepository, replayLogRepo repository.WebhookReplayLogRepository) *WebhookQueueService {
+	return &WebhookQueueService{repo: repo, dlqRepo: dlqRepo, replayLogRepo: replayLogRepo}
 }
 
 func (s *WebhookQueueService) Enqueue(eventID string, payload string) error {
@@ -125,6 +131,73 @@ func (s *WebhookQueueService) RescheduleNow(id int64) error {
 	job.NextRetryAt = time.Now()
 	job.Status = "retrying"
 	return s.repo.Update(job)
+}
+
+func (s *WebhookQueueService) MoveToDLQ(job *domain.UCPWebhookJob, reason string) error {
+	if s == nil || s.dlqRepo == nil || job == nil {
+		return nil
+	}
+	return s.dlqRepo.Create(&domain.WebhookDLQ{
+		JobID:     job.ID,
+		Reason:    reason,
+		Payload:   job.Payload,
+		CreatedAt: time.Now(),
+	})
+}
+
+func (s *WebhookQueueService) ReplayJob(jobID int64) error {
+	if s == nil || s.repo == nil || s.replayLogRepo == nil {
+		return nil
+	}
+	job, err := s.repo.FindByID(jobID)
+	if err != nil {
+		return err
+	}
+	job.Status = "retrying"
+	job.NextRetryAt = time.Now()
+	if err := s.repo.Update(job); err != nil {
+		return err
+	}
+	return s.replayLogRepo.Create(&domain.WebhookReplayLog{
+		JobID:    job.ID,
+		ReplayAt: time.Now(),
+		Result:   "scheduled",
+	})
+}
+
+type WebhookDLQService struct {
+	queue *WebhookQueueService
+	repo  repository.WebhookDLQRepository
+}
+
+func NewWebhookDLQService(queue *WebhookQueueService, repo repository.WebhookDLQRepository) *WebhookDLQService {
+	return &WebhookDLQService{queue: queue, repo: repo}
+}
+
+func (s *WebhookDLQService) ListDLQ(offset, limit int) ([]*domain.WebhookDLQ, int64, error) {
+	if s == nil || s.repo == nil {
+		return []*domain.WebhookDLQ{}, 0, nil
+	}
+	items, err := s.repo.List(offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	count, err := s.repo.Count()
+	if err != nil {
+		return nil, 0, err
+	}
+	return items, count, nil
+}
+
+func (s *WebhookDLQService) ReplayDLQ(id int64) error {
+	if s == nil || s.queue == nil || s.repo == nil {
+		return nil
+	}
+	item, err := s.repo.FindByID(id)
+	if err != nil {
+		return err
+	}
+	return s.queue.ReplayJob(item.JobID)
 }
 
 func buildOrderWebhookPayload(order *domain.Order, eventType string) ([]byte, error) {
