@@ -84,6 +84,7 @@ func main() {
 	adminOAuthClientHandler := api.NewAdminOAuthClientHandler(services.OAuthClient)
 	shippingRateHandler := api.NewShippingRateHandler(services.Checkout)
 	addressValidationHandler := api.NewAddressValidationHandler()
+	couponHandler := api.NewCouponHandler(services.Promotion)
 
 	apiGroup := r.Group("/api/v1")
 	{
@@ -127,6 +128,9 @@ func main() {
 		})
 		apiGroup.POST("/address/validate", func(c *gin.Context) {
 			addressValidationHandler.Validate(c)
+		})
+		apiGroup.POST("/coupons/validate", func(c *gin.Context) {
+			couponHandler.Validate(c)
 		})
 
 		admin := apiGroup.Group("/admin")
