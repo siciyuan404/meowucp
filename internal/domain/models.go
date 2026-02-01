@@ -304,3 +304,19 @@ type OAuthToken struct {
 	ExpiresAt time.Time
 	RevokedAt *time.Time
 }
+
+type TaxRule struct {
+	ID          int64 `gorm:"primary_key"`
+	Region      string
+	Category    string
+	Rate        float64
+	EffectiveAt time.Time
+}
+
+type ShippingRule struct {
+	ID            int64 `gorm:"primary_key"`
+	Region        string
+	Method        string
+	BaseAmount    float64
+	PerItemAmount float64
+}
