@@ -82,6 +82,8 @@ func main() {
 	})
 	adminWebhookDLQHandler := api.NewAdminWebhookDLQHandler(services.WebhookDLQ)
 	adminOAuthClientHandler := api.NewAdminOAuthClientHandler(services.OAuthClient)
+	shippingRateHandler := api.NewShippingRateHandler(services.Checkout)
+	addressValidationHandler := api.NewAddressValidationHandler()
 
 	apiGroup := r.Group("/api/v1")
 	{
@@ -119,6 +121,12 @@ func main() {
 		})
 		apiGroup.POST("/payments/:id/refund", func(c *gin.Context) {
 			paymentRefundHandler.Create(c)
+		})
+		apiGroup.GET("/shipping/rates", func(c *gin.Context) {
+			shippingRateHandler.List(c)
+		})
+		apiGroup.POST("/address/validate", func(c *gin.Context) {
+			addressValidationHandler.Validate(c)
 		})
 
 		admin := apiGroup.Group("/admin")
