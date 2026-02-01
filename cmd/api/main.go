@@ -59,6 +59,7 @@ func main() {
 	r := gin.Default()
 
 	r.Use(middleware.CORS())
+	r.Use(middleware.RequestLogger())
 
 	authMiddleware := middleware.NewAuthMiddleware(cfg.JWT.Secret)
 	ucpProfileHandler := ucpapi.NewProfileHandler(services)
