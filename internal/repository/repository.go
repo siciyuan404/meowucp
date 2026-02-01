@@ -153,6 +153,10 @@ type ShippingRuleRepository interface {
 	ListByRegion(region string) ([]*domain.ShippingRule, error)
 }
 
+type CouponRepository interface {
+	FindByCode(code string) (*domain.Coupon, error)
+}
+
 type UCPWebhookEventRepository interface {
 	Create(event *domain.UCPWebhookEvent) error
 	FindByEventID(eventID string) (*domain.UCPWebhookEvent, error)
@@ -218,6 +222,7 @@ type Repositories struct {
 	OAuthToken       OAuthTokenRepository
 	TaxRule          TaxRuleRepository
 	ShippingRule     ShippingRuleRepository
+	Coupon           CouponRepository
 	Webhook          UCPWebhookEventRepository
 	WebhookAudit     UCPWebhookAuditRepository
 	WebhookReplay    UCPWebhookReplayRepository
@@ -248,6 +253,7 @@ func NewRepositories(db *database.DB) *Repositories {
 		OAuthToken:       NewOAuthTokenRepository(db),
 		TaxRule:          NewTaxRuleRepository(db),
 		ShippingRule:     NewShippingRuleRepository(db),
+		Coupon:           NewCouponRepository(db),
 		Webhook:          NewUCPWebhookEventRepository(db),
 		WebhookAudit:     NewUCPWebhookAuditRepository(db),
 		WebhookReplay:    NewUCPWebhookReplayRepository(db),
