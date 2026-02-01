@@ -166,6 +166,14 @@ type UCPWebhookAlertRepository interface {
 	ExistsRecent(eventID, reason string, window time.Duration) (bool, error)
 }
 
+type WebhookDLQRepository interface {
+	Create(item *domain.WebhookDLQ) error
+}
+
+type WebhookReplayLogRepository interface {
+	Create(item *domain.WebhookReplayLog) error
+}
+
 type Repositories struct {
 	User             UserRepository
 	Product          ProductRepository
@@ -187,6 +195,8 @@ type Repositories struct {
 	WebhookReplay    UCPWebhookReplayRepository
 	WebhookQueue     UCPWebhookQueueRepository
 	WebhookAlert     UCPWebhookAlertRepository
+	WebhookDLQ       WebhookDLQRepository
+	WebhookReplayLog WebhookReplayLogRepository
 }
 
 func NewRepositories(db *database.DB) *Repositories {
@@ -211,5 +221,7 @@ func NewRepositories(db *database.DB) *Repositories {
 		WebhookReplay:    NewUCPWebhookReplayRepository(db),
 		WebhookQueue:     NewUCPWebhookQueueRepository(db),
 		WebhookAlert:     NewUCPWebhookAlertRepository(db),
+		WebhookDLQ:       NewWebhookDLQRepository(db),
+		WebhookReplayLog: NewWebhookReplayLogRepository(db),
 	}
 }
