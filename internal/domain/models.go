@@ -108,6 +108,17 @@ type OrderIdempotency struct {
 	UpdatedAt      time.Time
 }
 
+type IdempotencyKey struct {
+	ID               int64 `gorm:"primary_key"`
+	UserID           int64 `gorm:"not null"`
+	Key              string
+	RequestHash      string
+	ResponseSnapshot *string
+	Status           string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type OrderItem struct {
 	ID          int64  `gorm:"primary_key"`
 	OrderID     int64  `gorm:"index;not null"`
