@@ -285,3 +285,22 @@ type WebhookReplayLog struct {
 	ReplayAt time.Time
 	Result   string
 }
+
+type OAuthClient struct {
+	ID         int64 `gorm:"primary_key"`
+	ClientID   string
+	SecretHash string
+	Scopes     string
+	Status     string
+	CreatedAt  time.Time
+}
+
+type OAuthToken struct {
+	ID        int64 `gorm:"primary_key"`
+	Token     string
+	ClientID  string
+	UserID    *int64
+	Scopes    string
+	ExpiresAt time.Time
+	RevokedAt *time.Time
+}
