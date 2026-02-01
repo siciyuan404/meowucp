@@ -145,6 +145,14 @@ type OAuthTokenRepository interface {
 	Revoke(token string, revokedAt time.Time) error
 }
 
+type TaxRuleRepository interface {
+	ListByRegion(region string) ([]*domain.TaxRule, error)
+}
+
+type ShippingRuleRepository interface {
+	ListByRegion(region string) ([]*domain.ShippingRule, error)
+}
+
 type UCPWebhookEventRepository interface {
 	Create(event *domain.UCPWebhookEvent) error
 	FindByEventID(eventID string) (*domain.UCPWebhookEvent, error)
@@ -208,6 +216,8 @@ type Repositories struct {
 	Handler          PaymentHandlerRepository
 	OAuthClient      OAuthClientRepository
 	OAuthToken       OAuthTokenRepository
+	TaxRule          TaxRuleRepository
+	ShippingRule     ShippingRuleRepository
 	Webhook          UCPWebhookEventRepository
 	WebhookAudit     UCPWebhookAuditRepository
 	WebhookReplay    UCPWebhookReplayRepository
@@ -236,6 +246,8 @@ func NewRepositories(db *database.DB) *Repositories {
 		Handler:          NewPaymentHandlerRepository(db),
 		OAuthClient:      NewOAuthClientRepository(db),
 		OAuthToken:       NewOAuthTokenRepository(db),
+		TaxRule:          NewTaxRuleRepository(db),
+		ShippingRule:     NewShippingRuleRepository(db),
 		Webhook:          NewUCPWebhookEventRepository(db),
 		WebhookAudit:     NewUCPWebhookAuditRepository(db),
 		WebhookReplay:    NewUCPWebhookReplayRepository(db),

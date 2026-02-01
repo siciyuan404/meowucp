@@ -40,6 +40,9 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 	webhookDLQ := NewWebhookDLQService(webhookQueue, repos.WebhookDLQ)
 	oauthClient := NewOAuthClientService(repos.OAuthClient)
 	oauthToken := NewOAuthTokenService(repos.OAuthClient, repos.OAuthToken)
+	taxShipping := NewTaxShippingService(repos.TaxRule, repos.ShippingRule)
+	checkoutService := NewCheckoutSessionService(repos.Checkout)
+	checkoutService.SetTaxShippingService(taxShipping)
 
 	return &Services{
 		User:            NewUserService(repos.User),
@@ -49,7 +52,7 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 		Order:           orderService,
 		Payment:         paymentService,
 		Inventory:       NewInventoryService(repos.Product, repos.Inventory),
-		Checkout:        NewCheckoutSessionService(repos.Checkout),
+		Checkout:        checkoutService,
 		Handler:         NewPaymentHandlerService(repos.Handler),
 		Webhook:         NewWebhookEventService(repos.Webhook),
 		UCPOrder:        NewUCPOrderService(repos.Order, repos.Payment),
