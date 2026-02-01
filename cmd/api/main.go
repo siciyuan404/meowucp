@@ -115,6 +115,21 @@ func main() {
 			})
 		}
 
+		productHandler := api.NewProductHandler(services.Product, services.Localization)
+		apiGroup.GET("/products", func(c *gin.Context) {
+			productHandler.List(c)
+		})
+		apiGroup.GET("/products/:id", func(c *gin.Context) {
+			productHandler.Get(c)
+		})
+		categoryHandler := api.NewCategoryHandler(services.Category, nil)
+		apiGroup.GET("/categories", func(c *gin.Context) {
+			categoryHandler.List(c)
+		})
+		apiGroup.GET("/categories/:id", func(c *gin.Context) {
+			categoryHandler.Get(c)
+		})
+
 		orderHandler := api.NewOrderHandler(services.Order)
 		apiGroup.POST("/orders", func(c *gin.Context) {
 			orderHandler.Create(c)
