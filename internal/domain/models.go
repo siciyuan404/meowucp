@@ -350,3 +350,10 @@ type AuditLog struct {
 	Payload   *string
 	CreatedAt time.Time
 }
+
+type DataRetentionPolicy struct {
+	ID       int64 `gorm:"primary_key"`
+	Entity   string
+	TTLDays  int
+	Strategy string
+}
