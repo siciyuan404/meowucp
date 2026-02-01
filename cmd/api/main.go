@@ -230,6 +230,11 @@ func main() {
 				adminOAuthClientHandler.List(c)
 			})
 
+			adminAuditHandler := api.NewAdminAuditHandler(services.AuditLog)
+			admin.GET("/audit-logs", func(c *gin.Context) {
+				adminAuditHandler.List(c)
+			})
+
 			adminPaymentHandler := api.NewAdminPaymentHandler(services.Payment)
 			admin.GET("/payments", func(c *gin.Context) {
 				adminPaymentHandler.List(c)

@@ -32,3 +32,18 @@ func (s *AuditLogService) Record(actor, action, target string, payload string) e
 		CreatedAt: time.Now(),
 	})
 }
+
+func (s *AuditLogService) List(offset, limit int) ([]*domain.AuditLog, int64, error) {
+	if s == nil || s.repo == nil {
+		return nil, 0, errors.New("audit_log_repo_unavailable")
+	}
+	items, err := s.repo.List(offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	count, err := s.repo.Count()
+	if err != nil {
+		return nil, 0, err
+	}
+	return items, count, nil
+}
