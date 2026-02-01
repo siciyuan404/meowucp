@@ -77,6 +77,12 @@ type OrderIdempotencyRepository interface {
 	Update(record *domain.OrderIdempotency) error
 }
 
+type IdempotencyKeyRepository interface {
+	Create(record *domain.IdempotencyKey) error
+	FindByUserIDAndKey(userID int64, key string) (*domain.IdempotencyKey, error)
+	Update(record *domain.IdempotencyKey) error
+}
+
 type PaymentRepository interface {
 	Create(payment *domain.Payment) error
 	Update(payment *domain.Payment) error
@@ -149,6 +155,7 @@ type Repositories struct {
 	Cart             CartRepository
 	Order            OrderRepository
 	OrderIdempotency OrderIdempotencyRepository
+	IdempotencyKey   IdempotencyKeyRepository
 	Payment          PaymentRepository
 	Inventory        InventoryRepository
 	Checkout         CheckoutSessionRepository
@@ -168,6 +175,7 @@ func NewRepositories(db *database.DB) *Repositories {
 		Cart:             NewCartRepository(db),
 		Order:            NewOrderRepository(db),
 		OrderIdempotency: NewOrderIdempotencyRepository(db),
+		IdempotencyKey:   NewIdempotencyKeyRepository(db),
 		Payment:          NewPaymentRepository(db),
 		Inventory:        NewInventoryRepository(db),
 		Checkout:         NewCheckoutSessionRepository(db),
