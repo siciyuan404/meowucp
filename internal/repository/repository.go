@@ -71,6 +71,16 @@ type OrderRepository interface {
 	CreateOrderItem(item *domain.OrderItem) error
 }
 
+type ShipmentRepository interface {
+	Create(shipment *domain.Shipment) error
+	FindByOrderID(orderID int64) (*domain.Shipment, error)
+	Update(shipment *domain.Shipment) error
+}
+
+type OrderStatusLogRepository interface {
+	Create(log *domain.OrderStatusLog) error
+}
+
 type OrderIdempotencyRepository interface {
 	Create(record *domain.OrderIdempotency) error
 	FindByUserIDAndIdempotencyKey(userID int64, key string) (*domain.OrderIdempotency, error)
@@ -164,6 +174,8 @@ type Repositories struct {
 	Order            OrderRepository
 	OrderIdempotency OrderIdempotencyRepository
 	IdempotencyKey   IdempotencyKeyRepository
+	Shipment         ShipmentRepository
+	OrderStatusLog   OrderStatusLogRepository
 	Payment          PaymentRepository
 	PaymentRefund    PaymentRefundRepository
 	PaymentEvent     PaymentEventRepository
@@ -186,6 +198,8 @@ func NewRepositories(db *database.DB) *Repositories {
 		Order:            NewOrderRepository(db),
 		OrderIdempotency: NewOrderIdempotencyRepository(db),
 		IdempotencyKey:   NewIdempotencyKeyRepository(db),
+		Shipment:         NewShipmentRepository(db),
+		OrderStatusLog:   NewOrderStatusLogRepository(db),
 		Payment:          NewPaymentRepository(db),
 		PaymentRefund:    NewPaymentRefundRepository(db),
 		PaymentEvent:     NewPaymentEventRepository(db),

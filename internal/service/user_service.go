@@ -29,6 +29,9 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 	orderService := NewOrderService(repos.Order, repos.Cart, repos.Product, repos.Inventory, repos.OrderIdempotency)
 	webhookQueue := NewWebhookQueueService(repos.WebhookQueue)
 	orderService.SetWebhookQueue(webhookQueue)
+	orderService.SetShipmentRepo(repos.Shipment)
+	orderService.SetStatusLogRepo(repos.OrderStatusLog)
+	paymentService := NewPaymentServiceWithDeps(repos.Payment, repos.Order, repos.PaymentRefund, repos.PaymentEvent)
 
 	return &Services{
 		User:          NewUserService(repos.User),
@@ -36,7 +39,7 @@ func NewServices(repos *repository.Repositories, redis *redis.Client) *Services 
 		Category:      NewCategoryService(repos.Category),
 		Cart:          NewCartService(repos.Cart, repos.Product),
 		Order:         orderService,
-		Payment:       NewPaymentService(repos.Payment, repos.Order),
+		Payment:       paymentService,
 		Inventory:     NewInventoryService(repos.Product, repos.Inventory),
 		Checkout:      NewCheckoutSessionService(repos.Checkout),
 		Handler:       NewPaymentHandlerService(repos.Handler),
