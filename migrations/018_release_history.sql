@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS release_history (
+  id BIGSERIAL PRIMARY KEY,
+  version TEXT NOT NULL,
+  deployed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  operator TEXT NOT NULL
+);

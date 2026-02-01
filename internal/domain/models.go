@@ -372,3 +372,10 @@ type I18nString struct {
 	Locale string
 	Value  string
 }
+
+type ReleaseHistory struct {
+	ID         int64 `gorm:"primary_key"`
+	Version    string
+	DeployedAt time.Time
+	Operator   string
+}
