@@ -208,6 +208,16 @@ type WebhookReplayLogRepository interface {
 	Create(item *domain.WebhookReplayLog) error
 }
 
+type CurrencyRateRepository interface {
+	FindByBaseAndTarget(base, target string) (*domain.CurrencyRate, error)
+	Create(rate *domain.CurrencyRate) error
+}
+
+type I18nStringRepository interface {
+	FindByKeyAndLocale(key, locale string) (*domain.I18nString, error)
+	Create(str *domain.I18nString) error
+}
+
 type Repositories struct {
 	User             UserRepository
 	Product          ProductRepository
@@ -237,6 +247,8 @@ type Repositories struct {
 	WebhookAlert     UCPWebhookAlertRepository
 	WebhookDLQ       WebhookDLQRepository
 	WebhookReplayLog WebhookReplayLogRepository
+	CurrencyRate     CurrencyRateRepository
+	I18nString       I18nStringRepository
 }
 
 func NewRepositories(db *database.DB) *Repositories {
